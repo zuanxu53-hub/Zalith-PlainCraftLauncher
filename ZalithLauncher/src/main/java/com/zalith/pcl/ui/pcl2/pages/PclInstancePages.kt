@@ -38,6 +38,7 @@ import java.io.FileOutputStream
 import com.zalith.pcl.R
 import com.zalith.pcl.coroutine.TaskSystem
 import com.zalith.pcl.game.control.ControlManager
+import com.zalith.pcl.game.plugin.driver.DriverPluginManager
 import com.zalith.pcl.game.version.download.DownloadMode
 import com.zalith.pcl.game.version.download.MinecraftDownloader
 import com.zalith.pcl.game.version.installed.VersionLoginType
@@ -856,6 +857,15 @@ private fun PclInstanceSetupPage(version: Version) {
     // 渲染器列表只是 `Renderers` 单例里的内存表（不碰磁盘），所以**同步**取：
     // 原来放在 IO 协程里，第一帧 `rendererOptions` 还是空表，下拉里就只剩「跟随全局设置」。
     val rendererOptions = remember(version) { PclSettings.rendererOptions() }
+    // 驱动列表同样是内存表（`PluginLoader` 启动时把插件扫好），同步取即可。
+    //
+    // 版本设置的「驱动」以前是个自由文本框：要单独设置就得手打 `Driver` 的 id，
+    // 而 id 是插件包名 / 内置标识，谁也记不住，实际等于「只能跟随全局」。
+    // 这里取一次列表给下拉用，和「渲染器」那行保持同一种交互。
+    val driverOptions = remember(version) {
+        runCatching { DriverPluginManager.getDriverList().map { it.id to it.name } }
+            .getOrDefault(emptyList())
+    }
     var javaOptions by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var controlOptions by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     val controlData by com.zalith.pcl.game.control.ControlManager.dataList
@@ -1221,11 +1231,31 @@ private fun PclInstanceSetupPage(version: Version) {
             }
             Spacer(Modifier.height(9.dp))
             PclSetupRow("驱动") {
-                PclTextBox(
-                    value = config.driver,
+                // 空串 = 跟随全局设置（`Version.getDriver()` 就是这么回落的：
+                // `versionConfig.driver.getValueOrDefault(AllSettings.vulkanDriver.getValue())`）。
+                //
+                // 以前这里是自由文本框，要单独设置必须手打驱动 id（插件包名），
+                // 记不住就只能留空 —— 等于「只能跟随全局」。现在改成下拉：
+                // 第一项是跟随全局并显示全局当前选的是哪个驱动，后面列全部已装驱动。
+                val globalDriverId = AllSettings.vulkanDriver.state
+                val globalDriverName = driverOptions
+                    .firstOrNull { it.first == globalDriverId }?.second
+                    ?: globalDriverId
+                val items = buildList {
+                    add("" to "跟随全局设置（$globalDriverName）")
+                    addAll(driverOptions)
+                    // 存着的 id 可能来自已卸载的驱动插件：补一条「未安装」进去。
+                    // 否则下拉会回落到第一项、显示成「跟随全局」，用户以为设置丢了。
+                    if (config.driver.isNotBlank() && driverOptions.none { it.first == config.driver }) {
+                        add(config.driver to "${config.driver}（未安装）")
+                    }
+                }
+                PclComboBox(
+                    items = items,
+                    selected = items.firstOrNull { it.first == config.driver } ?: items.first(),
+                    label = { it?.second.orEmpty() },
                     modifier = Modifier.fillMaxWidth(),
-                    hint = "跟随全局设置",
-                    onValueChange = { config.driver = it; saveToken() },
+                    onSelect = { config.driver = it.first; saveToken() },
                 )
             }
             Spacer(Modifier.height(9.dp))
