@@ -397,7 +397,15 @@ private suspend fun runProcessors(
                     R.string.download_game_install_base_installing, taskStr
                 ))
 
-                Logger.info(TAG, "Start to run $jarPath with args: $jvmArgs")
+                // classpath 动辄几十个 jar、几千个字符，原样打进日志会把「日志末尾 25 行」
+                // 整个占满 —— 报错框里就只剩一串 jar 路径，真正的错误反而被挤没了。
+                // 这里只留开头一段和总长度，需要完整命令行时看 logcat。
+                val shownArgs = if (jvmArgs.length <= 400) {
+                    jvmArgs
+                } else {
+                    jvmArgs.take(400) + " …（后续省略，命令行共 ${jvmArgs.length} 字符）"
+                }
+                Logger.info(TAG, "Start to run $jarPath with args: $shownArgs")
             }
         )
 

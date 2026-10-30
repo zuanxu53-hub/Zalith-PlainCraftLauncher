@@ -523,8 +523,15 @@ abstract class Launcher(
             javaLibDir = "$runtimeHome/jre${getJavaLibDir()}"
         }
         val jvmLibDir = "$javaLibDir${getJvmLibDir()}"
-        ZLBridge.dlopen("$jliLibDir/libjli.so")
-        ZLBridge.dlopen("$jvmLibDir/libjvm.so")
+
+        // 这两个库是 JVM 的根：原生层 launchJVM 里 `dlopen("libjli.so")` 一旦拿不到句柄
+        // 就直接 `return -1`，界面上只剩一句「JVM 以异常代码 -1 退出」，
+        // 连是哪个路径有问题都看不出来（运行库被解压了一半时最常见）。
+        // 这里先把失败原因变成一条带完整路径的异常：它会写进 JVM 日志，
+        // 报错框里的「日志末尾」就能直接看到真凶。
+        requireDlopen("$jliLibDir/libjli.so")
+        requireDlopen("$jvmLibDir/libjvm.so")
+
         ZLBridge.dlopen("$javaLibDir/libfreetype.so")
         ZLBridge.dlopen("$javaLibDir/libverify.so")
         ZLBridge.dlopen("$javaLibDir/libjava.so")
@@ -536,6 +543,21 @@ abstract class Launcher(
         locateLibs(File(runtimeHome)).forEach { file ->
             ZLBridge.dlopen(file.absolutePath)
         }
+    }
+
+    /** 加载一个**必需**的 jvm 原生库；失败就带着路径抛出，而不是留给原生层回一个 -1。 */
+    private fun requireDlopen(path: String) {
+        if (ZLBridge.dlopen(path)) return
+        val exists = File(path).isFile
+        throw IOException(
+            if (exists) {
+                "内置 Java 运行库加载失败：$path（文件在，但无法加载 —— " +
+                        "多半是与设备架构不匹配，或依赖的其它 so 缺失）"
+            } else {
+                "内置 Java 运行库缺少文件：$path（运行库解压不完整，" +
+                        "请重启启动器重新解压，或在「设置 → Java 运行库」里删除后重新下载）"
+            }
+        )
     }
 
     @CallSuper

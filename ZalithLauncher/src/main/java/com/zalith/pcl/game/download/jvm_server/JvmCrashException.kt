@@ -38,8 +38,20 @@ class JvmCrashException(val code: Int) : RuntimeException(buildMessage(code))
 
 private fun buildMessage(code: Int): String {
     val title = "During installation, the JVM exited with exception code $code."
-    val tail = readProcessLogTail() ?: return title
-    return "$title\n\n——— JVM 日志末尾（$LOG_TAIL_LINES 行）———\n$tail"
+    val hint = when {
+        // -1 不是 JVM 的退出码，是原生层 launchJVM 的两个 return -1 之一：
+        // dlopen("libjli.so") 失败，或者在里面找不到 JLI_Launch。换句话说 JVM
+        // 连 Java 代码都没进就没了 —— 光看"异常代码 -1"完全猜不到是这个原因。
+        code == -1 ->
+            "\n\n说明：-1 表示 JVM 还没进入 Java 代码就退出了（原生层加载 libjli.so 失败）。" +
+                    "通常是内置 Java 运行库解压不完整或与设备架构不匹配 —— " +
+                    "可在「设置 → Java 运行库」里重新解压对应的运行库后再试。"
+        code < 0 ->
+            "\n\n说明：负数是进程被系统信号终止，常见于内存不足或原生库与设备不兼容。"
+        else -> ""
+    }
+    val tail = readProcessLogTail() ?: return title + hint
+    return "$title$hint\n\n——— JVM 日志末尾（$LOG_TAIL_LINES 行）———\n$tail"
 }
 
 /**

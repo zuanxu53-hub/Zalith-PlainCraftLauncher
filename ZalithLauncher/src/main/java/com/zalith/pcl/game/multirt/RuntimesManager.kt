@@ -293,8 +293,35 @@ object RuntimesManager {
      * `Selected runtime is broken!`。
      */
     fun isRuntimeUsable(name: String): Boolean = runCatching {
-        RUNTIME_FOLDER.child(name).exists() && forceReload(name).isCompatible()
+        val dest = RUNTIME_FOLDER.child(name)
+        dest.exists() && forceReload(name).isCompatible() && findMissingRuntimeFiles(dest).isEmpty()
     }.getOrDefault(false)
+
+    /**
+     * 运行库目录里缺了哪些**起来就活不了**的文件。
+     *
+     * 只看 `release` 是不够的：解压被中途打断（存储满、进程被杀、包本身损坏）时，
+     * `release` 往往已经落盘，`bin/java`、`libjli.so`、`libjvm.so` 却没写进去。
+     * 这种目录会被判成「已安装、且版本架构都对」，一直用到真正拉起 JVM 才炸 ——
+     * 原生层 `dlopen("libjli.so")` 失败，回传的退出码是 **-1**，
+     * 界面上只会显示「JVM 以异常代码 -1 退出」，谁也看不出是运行库残缺。
+     *
+     * 这里按名字递归找一遍：不同版本布局不一样（JRE 8 是 `lib/<arch>/jli/libjli.so`，
+     * JRE 9+ 是 `lib/libjli.so`），按目录结构猜容易再次猜错，直接按文件名找最稳。
+     */
+    private fun findMissingRuntimeFiles(dest: File): List<String> {
+        if (!dest.exists()) return listOf("运行库目录")
+
+        val missing = mutableListOf<String>()
+        if (!File(dest, "bin/java").exists()) missing += "bin/java"
+
+        val soNames = runCatching {
+            FileUtils.listFiles(dest, arrayOf("so"), true).map { it.name }.toHashSet()
+        }.getOrDefault(emptySet<String>())
+        if ("libjli.so" !in soNames) missing += "libjli.so"
+        if ("libjvm.so" !in soNames) missing += "libjvm.so"
+        return missing
+    }
 
     /**
      * 尝试低成本修好一个「标记对得上、但实际不可用」的运行库。
@@ -327,7 +354,11 @@ object RuntimesManager {
 
             else -> {
                 val runtime = forceReload(name)
+                val missing = findMissingRuntimeFiles(dest)
                 when {
+                    missing.isNotEmpty() ->
+                        "解压不完整，缺少 ${missing.joinToString("、")}（需要重新解压）"
+
                     runtime.versionString == null -> "release 里解析不出 JAVA_VERSION"
                     runtime.arch == null -> "release 里解析不出 OS_ARCH"
                     !runtime.isCompatible() -> "架构不匹配（release 里是 ${runtime.arch}）"
