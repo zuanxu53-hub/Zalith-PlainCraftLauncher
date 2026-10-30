@@ -77,6 +77,7 @@ import com.zalith.pcl.ui.pcl2.pclResourceIconFor
 import com.zalith.pcl.ui.pcl2.components.PclButton
 import com.zalith.pcl.ui.pcl2.components.PclCard
 import com.zalith.pcl.ui.pcl2.components.PclColorState
+import com.zalith.pcl.ui.pcl2.components.PclConfirmDialog
 import com.zalith.pcl.ui.pcl2.components.PclHintTheme
 import com.zalith.pcl.ui.pcl2.components.PclIcons
 import com.zalith.pcl.ui.pcl2.components.PclListItem
@@ -141,6 +142,15 @@ private fun PclResourceDetail(
     var importer by remember { mutableStateOf<ModpackImporter?>(null) }
     /** 点了下载、但还没确定「装到哪个版本」的资源（非 null 时弹选择框）。 */
     var pendingPick by remember { mutableStateOf<PlatformVersion?>(null) }
+    /**
+     * 点了下载、但这条文件带**必装前置**（非 null 时先弹「需要前置资源」提示）。
+     *
+     * 前置其实是自动装的（[startResourceDownload] 里会把 REQUIRED 依赖一并提交），
+     * 但这个过程完全在后台，用户看到的只有「已提交下载任务」。
+     * 于是很常见的困惑是：装了 Iris 却发现没生效 —— 因为它要 Sodium，
+     * 而玩家根本不知道有这回事。这里把它提前讲清楚。
+     */
+    var pendingDeps by remember { mutableStateOf<PendingDependencies?>(null) }
 
     LaunchedEffect(data) {
         loading = true
@@ -244,27 +254,11 @@ private fun PclResourceDetail(
     }
 
     /**
-     * 点「下载 / 安装」。
+     * [download] 的后半段：确定「装到哪个版本」并真正提交下载。
      *
-     * 整合包：PCL 是让用户输入一个新的实例名（`MyMsgBoxInput`），不涉及目标版本。
-     * 其余资源（Mod / 资源包 / 光影包 / 数据包）：PCL 会先确定「装到哪个版本」——
-     * 见 `PageDownloadCompDetail.xaml.vb:420` 那段：优先用**当前选中的版本**作为默认位置，
-     * 当前版本不合适时才退回到最近改动过的合适版本，最后才让用户自己挑。
-     * 这里就是把这件事显式做成一个选择框：默认选中当前版本，玩家也可以改。
+     * 注意这是**局部函数**，必须写在 [download] 前面 —— Kotlin 不允许先调用后定义。
      */
-    fun download(version: PlatformVersion) {
-        if (classes == PlatformClasses.MOD_PACK) {
-            startModpackImport(
-                // 内部用 `runtime.backgroundScope`：下载可能要好几分钟，用户中途切走版块是常事，
-                // 挂在页面 scope 上的话导入会在建立瞬间就被取消 →「下载完没自动安装」。
-                // 同时任务会被登记进「下载管理」，关掉进度弹窗后进度依然在那儿。
-                runtime = runtime,
-                version = version,
-                // 传 null 表示导入已结束，弹窗该收起来了
-                onImporter = { importer = it },
-            )
-            return
-        }
+    fun proceedDownload(version: PlatformVersion) {
         val all = runtime.versions.value
         if (all.isEmpty()) {
             // 一个版本都没扫到：能退到「当前版本」就退，连当前版本都没有才报错。
@@ -284,6 +278,57 @@ private fun PclResourceDetail(
             // 选择框的价值不只是"挑"，更是"让你看见这东西要装到哪儿"，所以个数不是跳过它的理由。
             pendingPick = version
         }
+    }
+
+    /**
+     * 点「下载 / 安装」。
+     *
+     * 整合包：PCL 是让用户输入一个新的实例名（`MyMsgBoxInput`），不涉及目标版本。
+     * 其余资源（Mod / 资源包 / 光影包 / 数据包）：PCL 会先确定「装到哪个版本」——
+     * 见 `PageDownloadCompDetail.xaml.vb:420` 那段：优先用**当前选中的版本**作为默认位置，
+     * 当前版本不合适时才退回到最近改动过的合适版本，最后才让用户自己挑。
+     * 这里就是把这件事显式做成一个选择框：默认选中当前版本，玩家也可以改。
+     *
+     * 另外：**带必装前置的文件会先弹一句提示**（见 [pendingDeps]），确认后才继续往下走。
+     */
+    fun download(version: PlatformVersion) {
+        if (classes == PlatformClasses.MOD_PACK) {
+            startModpackImport(
+                // 内部用 `runtime.backgroundScope`：下载可能要好几分钟，用户中途切走版块是常事，
+                // 挂在页面 scope 上的话导入会在建立瞬间就被取消 →「下载完没自动安装」。
+                // 同时任务会被登记进「下载管理」，关掉进度弹窗后进度依然在那儿。
+                runtime = runtime,
+                version = version,
+                // 传 null 表示导入已结束，弹窗该收起来了
+                onImporter = { importer = it },
+            )
+            return
+        }
+        // 必装前置先讲清楚再下。整合包不走这一步（它有自己的一整套依赖树）。
+        val required = version.platformDependencies()
+            .filter { it.type == PlatformDependencyType.REQUIRED }
+            .filter { it.projectId != null }
+        if (required.isNotEmpty()) {
+            val prompt = PendingDependencies(version = version, dependencies = required, names = null)
+            pendingDeps = prompt
+            // 依赖数据里只有 projectId，没有名字。这里顺手把名字查出来，查不到就退回 id，
+            // 不让「提示框还没算出名字」挡住用户点下载。
+            scope.launch {
+                val names = required.map { dep ->
+                    val pid = dep.projectId.orEmpty()
+                    runCatching { getProjectByVersion(pid, dep.platform, printLog = false).platformTitle() }
+                        .getOrNull()
+                        ?.takeIf { it.isNotBlank() }
+                        ?: "项目 $pid"
+                }
+                // 用户可能已经关掉 / 换了另一个文件，别把新提示覆盖掉
+                pendingDeps = pendingDeps
+                    ?.takeIf { it.version === version }
+                    ?.copy(names = names)
+            }
+            return
+        }
+        proceedDownload(version)
     }
 
     PclContent {
@@ -433,6 +478,35 @@ private fun PclResourceDetail(
         }
     }
 
+    // ---- 必装前置提示（点下载时先讲清楚，别让用户装完发现不生效）
+    pendingDeps?.let { prompt ->
+        val names = prompt.names
+        // 名字还在查（或查不到）时用项目 id 顶上，不让提示框一直空着
+        val listed = names?.takeIf { it.isNotEmpty() }
+            ?: prompt.dependencies.map { "项目 ${it.projectId}" }
+        PclConfirmDialog(
+            title = "需要前置资源",
+            content = buildString {
+                append("「")
+                append(prompt.version.platformDisplayName())
+                append("」需要 ")
+                append(listed.size)
+                append(" 项必装前置资源，会随它一起下载并装进同一个版本：\n\n")
+                listed.forEach { append("·  ").append(it).append('\n') }
+                append("\n装完若没有生效，先确认前置的版本、加载器和游戏版本是否一致。")
+                if (names == null) append("\n\n（前置名称还在获取中，「继续下载」不受影响）")
+            },
+            confirmText = "继续下载",
+            // 先把状态清掉再往下走：按钮回调之外，退出动画结束时 onDismiss 还会被调一次，
+            // 那时 pendingDeps 已是 null，不会把刚发起的流程搅乱。
+            onConfirm = {
+                pendingDeps = null
+                proceedDownload(prompt.version)
+            },
+            onDismiss = { pendingDeps = null },
+        )
+    }
+
     // ---- 选择「装到哪个版本」（默认选中当前版本）
     pendingPick?.let { pending ->
         val all = runtime.versions.value
@@ -537,8 +611,13 @@ private fun PclResourceFileRow(
     onInstall: () -> Unit,
 ) {
     val loaders = file.platformLoaders().joinToString(" / ") { it.getDisplayName() }
+    // 必装前置的条数直接标在信息行里（截图里 PCL 的「1 项前置」就是这个位置）。
+    // 只在 > 0 时出现，不占位置也不影响别的资源。
+    val requiredCount = file.platformDependencies()
+        .count { it.type == PlatformDependencyType.REQUIRED && it.projectId != null }
     val info = listOfNotNull(
         loaders.takeIf { it.isNotBlank() },
+        "$requiredCount 项前置".takeIf { requiredCount > 0 },
         formatFileSize(file.platformFileSize()),
         formatDate(file.platformDatePublished().toEpochMilli(), "yyyy/M/d"),
         file.platformFileName().takeIf { it.isNotBlank() },
@@ -560,6 +639,18 @@ private fun PclResourceFileRow(
         onClick = onInstall,
     )
 }
+
+/**
+ * 点下载时遇到的必装前置。
+ *
+ * [names] 是异步查出来的显示名（`null` = 还在查，先用项目 id 顶上）；
+ * 依赖数据本身只有 `projectId`，没有名字，所以要额外请求一次。
+ */
+private data class PendingDependencies(
+    val version: PlatformVersion,
+    val dependencies: List<PlatformVersion.PlatformDependency>,
+    val names: List<String>?,
+)
 
 /** 版本号降序比较：数字段逐段比较，没有点号的（快照）排在最后。 */
 private val PclVersionDescComparator = Comparator<String> { a, b ->
