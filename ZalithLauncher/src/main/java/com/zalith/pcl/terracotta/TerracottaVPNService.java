@@ -136,7 +136,19 @@ public class TerracottaVPNService extends VpnService {
             stopSelf();
             return Service.START_NOT_STICKY;
         }
-        vpnInterface = request.startVpnService(vpnBuilder);
+
+        try {
+            vpnInterface = request.startVpnService(vpnBuilder);
+        } catch (Throwable t) {
+            //establish() 失败（VPN 授权被撤销、另一个 VPN 抢了、被系统限流）会抛 RuntimeException。
+            //这条路径上抛出去就是未捕获异常 → 启动器闪退，所以这里必须自己收住。
+            Log.e(TAG, "Cannot establish the VPN tunnel.", t);
+            Terracotta.INSTANCE.setWaiting(false);
+            cleanup();
+            stopForeground(true);
+            stopSelf();
+            return Service.START_NOT_STICKY;
+        }
 
         return Service.START_STICKY;
     }
@@ -145,7 +157,7 @@ public class TerracottaVPNService extends VpnService {
     public void onRevoke() {
         Log.w(TAG, "onRevoke(): preempted by another VPN or revoked by user; tearing down.");
         isStopping = true;
-        Terracotta.INSTANCE.setWaiting(false);
+        resetTerracottaState();
         cleanup();
         stopForeground(true);
         stopSelf();
@@ -155,9 +167,23 @@ public class TerracottaVPNService extends VpnService {
     public void onDestroy() {
         Log.d(TAG, "onDestroy(): vpn service finished");
         isStopping = true;
-        Terracotta.INSTANCE.setWaiting(false);
+        resetTerracottaState();
         cleanup();
         super.onDestroy();
+    }
+
+    /**
+     * 通知原生层回到「等待大厅」。
+     *
+     * 这一步会踩进 native 层，native 出错时是直接抛 RuntimeException 的；
+     * 服务销毁时抛出去就是没人接的未捕获异常 → 启动器闪退，所以吞掉并留日志。
+     */
+    private void resetTerracottaState() {
+        try {
+            Terracotta.INSTANCE.setWaiting(false);
+        } catch (Throwable t) {
+            Log.w(TAG, "Cannot reset the Terracotta state.", t);
+        }
     }
 
     private int getStateTextRes(Intent intent) {

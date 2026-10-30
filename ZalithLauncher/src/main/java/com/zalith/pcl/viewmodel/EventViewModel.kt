@@ -22,27 +22,36 @@ import android.net.Uri
 import android.view.KeyEvent
 import android.widget.Toast
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import com.zalith.pcl.game.version.installed.Version
 import com.zalith.pcl.ui.AndroidStringText
 import com.zalith.pcl.ui.control.input.TextInputMode
 import com.zalith.pcl.ui.guide.GuideKeys
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.launch
 import java.io.File
 
 class EventViewModel : ViewModel() {
-    private val _events = MutableSharedFlow<Event>(extraBufferCapacity = 1)
+    /**
+     * 事件通道。
+     *
+     * 缓冲给得比较宽、溢出直接丢最旧的：投递方之一（陶瓦的 VPN 请求）是从**原生线程**回调进来的，
+     * 用 `emit`（挂起）意味着要依赖 `viewModelScope` 活着 —— ViewModel 一旦 `onCleared`，
+     * 那个协程根本不会跑，事件就这么静默消失了，最后表现成「点了没反应」或者 30 秒后整机崩。
+     * 改成 `tryEmit` 之后投递与调用方生命周期完全无关。
+     */
+    private val _events = MutableSharedFlow<Event>(
+        replay = 0,
+        extraBufferCapacity = 32,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
     val events = _events.asSharedFlow()
 
     /**
      * 发送一个事件
      */
     fun sendEvent(event: Event) {
-        viewModelScope.launch {
-            _events.emit(event)
-        }
+        _events.tryEmit(event)
     }
 
     sealed interface Event {

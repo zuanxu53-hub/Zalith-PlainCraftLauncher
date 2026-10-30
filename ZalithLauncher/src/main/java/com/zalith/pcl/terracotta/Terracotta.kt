@@ -18,12 +18,17 @@
 
 package com.zalith.pcl.terracotta
 
+import android.content.Intent
+import android.net.VpnService
+import androidx.core.content.ContextCompat
 import com.google.gson.JsonParseException
 import com.google.gson.reflect.TypeToken
+import com.zalith.pcl.context.GlobalContext
 import com.zalith.pcl.coroutine.MutableTransitionStateFlow
 import com.zalith.pcl.path.PathManager
 import com.zalith.pcl.utils.logging.Logger
 import com.zalith.pcl.viewmodel.EventViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -37,6 +42,16 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.Duration.Companion.milliseconds
 
 private const val TAG = "Terracotta"
+
+/**
+ * 原生层给一个 VPN 请求预留的等待时间是 **30 秒**（`TerracottaAndroidAPI.onVpnServiceStateChanged`），
+ * 超时就会在原生回调里抛 `IllegalStateException`，异常顺着 JNI 冒出去直接终结进程 ——
+ * 界面上看到的就是「应用程序意外崩溃了」，栈顶固定是 `onVpnServiceStateChanged`。
+ *
+ * 这里留 12 秒的余量自己兜一次底：界面还活着的时候正常路径通常 1 秒内就建立隧道了，
+ * 12 秒还没人认领基本就说明事件丢了 / 界面已经销毁 / 授权框被晾在一边没人管。
+ */
+private const val VPN_REQUEST_FALLBACK_DELAY = 12_000L
 
 /**
  * [Reference FCL](https://github.com/FCL-Team/FoldCraftLauncher/blob/52f0542/FCL/src/main/java/com/tungsten/fcl/terracotta/Terracotta.java)
@@ -58,6 +73,9 @@ object Terracotta {
 
     private var notificationJob: Job? = null
     private var metadata: TerracottaAndroidAPI.Metadata? = null
+
+    /** 无人认领 VPN 请求时的兜底任务，见 [scheduleVpnFallback] */
+    private var vpnFallbackJob: Job? = null
 
     var mode: Mode? = null
         private set
@@ -93,28 +111,44 @@ object Terracotta {
             PathManager.DIR_TERRACOTTA.absolutePath,
             PathManager.FILE_TERRACOTTA_LOG.absolutePath
         ) {
-            // 这里必须用字段而不是上面那个参数：这个回调是注册给原生层、以后才被调用的，
-            // 中间界面很可能已经换过一轮，用参数就会把请求发给老界面的 ViewModel。
-            this@Terracotta.eventViewModel?.sendEvent(EventViewModel.Event.Terracotta.RequestVPN)
-            runtimeScope.startNotificationJob()
+            // ⚠️ 这个回调是**原生线程**上执行的（JNI 反调进 Java）。
+            // 任何异常从这里冒回去都会被 JVM 当成未捕获异常，直接走
+            // `ZLApplication` 的崩溃处理 → 弹「应用程序意外崩溃了」→ 杀进程。
+            // 所以下面做的所有事都必须自己吞异常，一个都不许漏出去。
+            handleVpnServiceRequest()
         }
 
         runtimeScope.launch(Dispatchers.Default) {
+            // 轮询失败（原生层 panic、状态 JSON 解析出错）原本会顺着 `runtimeScope` 的
+            // 未捕获异常处理器把整个启动器带崩。这里收住、降频重试 —— 状态机卡在旧值
+            // 顶多是界面不动，闪退则是直接打断用户。
+            var lastFailureAt = 0L
             while (true) {
-                val current = stateRef.get()
-                val index = current?.index ?: -1
+                try {
+                    val current = stateRef.get()
+                    val index = current?.index ?: -1
 
-                val stateJson = TerracottaAndroidAPI.getState()
-                val obj = TerracottaState.TerracottaStateGson.fromJson<TerracottaState.Ready>(
-                    stateJson,
-                    object : TypeToken<TerracottaState.Ready>() {}.type
-                ) ?: throw JsonParseException("Json object cannot be null.")
+                    val stateJson = TerracottaAndroidAPI.getState()
+                    val obj = TerracottaState.TerracottaStateGson.fromJson<TerracottaState.Ready>(
+                        stateJson,
+                        object : TypeToken<TerracottaState.Ready>() {}.type
+                    ) ?: throw JsonParseException("Json object cannot be null.")
 
-                if (obj.index > index) {
-                    compareAndSet(current, obj)
+                    if (obj.index > index) {
+                        compareAndSet(current, obj)
+                    }
+
+                    delay(1L.milliseconds)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (t: Throwable) {
+                    val now = System.currentTimeMillis()
+                    if (now - lastFailureAt > 30_000L) {
+                        lastFailureAt = now
+                        Logger.warning(TAG, "Cannot poll the Terracotta state", t)
+                    }
+                    delay(500L)
                 }
-
-                delay(1L.milliseconds)
             }
         }
 
@@ -123,6 +157,10 @@ object Terracotta {
 
     fun setWaiting(manual: Boolean) {
         if (!initialized) return
+
+        // 回到等待大厅说明隧道已经用不上了，兜底任务跟着取消，免得回头又拉起一个服务
+        vpnFallbackJob?.cancel()
+        vpnFallbackJob = null
 
         stopNotificationJob()
         if (manual) this.eventViewModel?.sendEvent(EventViewModel.Event.Terracotta.StopVPN)
@@ -177,6 +215,90 @@ object Terracotta {
     fun testNativePanic() {
         if (!initialized) return
         TerracottaAndroidAPI.panic()
+    }
+
+    /**
+     * 原生层要一条隧道时走这里。
+     *
+     * **这个方法跑在原生线程上**，抛出去的东西会顺着 JNI 变成「未捕获异常」，
+     * 直接把启动器带崩（崩溃栈顶永远是 `onVpnServiceStateChanged`）。所以：
+     * 一不许抛，二必须保证这条请求最终有人认领 —— 原生层只等 30 秒。
+     */
+    private fun handleVpnServiceRequest() {
+        // 留一条痕迹：这个回调一旦出问题就是闪退，日志里至少要知道「请求来过、什么时候来的」
+        Logger.info(TAG, "VPN service request received")
+
+        try {
+            runtimeScope.startNotificationJob()
+        } catch (t: Throwable) {
+            Logger.warning(TAG, "Cannot start the notification job", t)
+        }
+
+        // 这里必须用字段而不是 initialize 的入参：回调是原生层以后才调的，
+        // 中间界面很可能已经换过一轮，用入参就会把请求发给老界面的 ViewModel。
+        val target = eventViewModel
+        if (target == null) {
+            Logger.warning(TAG, "VPN request received but no event channel is attached yet")
+        } else {
+            try {
+                target.sendEvent(EventViewModel.Event.Terracotta.RequestVPN)
+            } catch (t: Throwable) {
+                // 事件投递失败（ViewModel 已销毁之类）不能连累原生回调，下面还有兜底
+                Logger.warning(TAG, "Cannot dispatch the VPN request", t)
+            }
+        }
+
+        scheduleVpnFallback()
+    }
+
+    /**
+     * 兜底：万一界面上没人认领这条 VPN 请求（事件丢了、界面已经销毁、授权框被晾在一边），
+     * 到点由我们自己把服务拉起来，绝不让它挂到原生层的 30 秒超时上。
+     */
+    private fun scheduleVpnFallback() {
+        vpnFallbackJob?.cancel()
+        vpnFallbackJob = runtimeScope.launch {
+            delay(VPN_REQUEST_FALLBACK_DELAY)
+
+            // 请求还在挂着才会抛，抛了说明已经有人建立隧道/干脆拒掉了，无需插手
+            val pending = try {
+                TerracottaAndroidAPI.getPendingVpnServiceRequest()
+            } catch (_: IllegalStateException) {
+                null
+            }
+            if (pending == null) return@launch
+
+            val context = try {
+                GlobalContext
+            } catch (t: Throwable) {
+                Logger.warning(TAG, "Cannot access the application context for the VPN fallback", t)
+                return@launch
+            }
+
+            // 还没授权时只能靠系统弹窗；后台起不了界面，硬来只会再抛一次，交给用户自己点
+            val consentIntent = try {
+                VpnService.prepare(context)
+            } catch (t: Throwable) {
+                Logger.warning(TAG, "Cannot query the VPN consent state", t)
+                return@launch
+            }
+            if (consentIntent != null) {
+                Logger.warning(TAG, "VPN request is still pending while consent is missing; skip the fallback")
+                return@launch
+            }
+
+            Logger.warning(TAG, "VPN request is still pending after $VPN_REQUEST_FALLBACK_DELAY ms; starting the service from the fallback")
+            try {
+                ContextCompat.startForegroundService(
+                    context,
+                    Intent(context, TerracottaVPNService::class.java)
+                        .setAction(TerracottaVPNService.ACTION_START),
+                )
+            } catch (t: Throwable) {
+                // 后台启动前台服务在 Android 12+ 会被拦，拦了就只能等原生层超时
+                Logger.warning(TAG, "The VPN fallback service start was rejected", t)
+            }
+        }
     }
 
     private fun checkInitialized() {

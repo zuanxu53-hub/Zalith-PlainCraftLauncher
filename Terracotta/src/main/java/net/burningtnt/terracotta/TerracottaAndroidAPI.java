@@ -444,12 +444,20 @@ public final class TerracottaAndroidAPI {
             long value = fd.get();
             if (value == FD_PENDING) {
                 if (System.currentTimeMillis() - timestamp >= 30000) {
-                    Log.wtf("TerracottaAndroidAPI", "VpnService Request hasn't been fulfilled in 30s.");
-                    throw new IllegalStateException();
+                    // 30 秒内没人建立隧道（界面已销毁、事件丢了、授权框被晾在一边）。
+                    //
+                    // 上游的做法是这里直接 `throw new IllegalStateException()`，异常冒回 JNI
+                    // 后会变成启动器里的「应用程序意外崩溃了」并杀掉整个进程 —— 用户什么都没干
+                    // 就闪退了。改成返回 -1：EasyTier 走「拿不到 tun fd」的普通失败路径，
+                    // 最坏结果只是这次联机失败，启动器还在。
+                    Log.e("TerracottaAndroidAPI", "VpnService Request hasn't been fulfilled in 30s, giving up.");
+                    pendingRequest = null;
+                    return -1;
                 }
                 Thread.yield();
             } else if (value == FD_REJECT) {
                 pendingRequest = null;
+                Log.w("TerracottaAndroidAPI", "VpnService Request rejected by the application.");
                 throw new IllegalStateException();
             } else {
                 pendingRequest = null;

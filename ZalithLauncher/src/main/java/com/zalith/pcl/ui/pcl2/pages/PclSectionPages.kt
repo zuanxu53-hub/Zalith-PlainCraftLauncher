@@ -2714,14 +2714,24 @@ private fun PclLinkContent() {
         contract = ActivityResultContracts.StartActivityForResult(),
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
-            ContextCompat.startForegroundService(
-                context,
-                Intent(context, TerracottaVPNService::class.java)
-                    .setAction(TerracottaVPNService.ACTION_START),
-            )
+            // 拉起前台服务这一段在任何界面回调里都可能失败（后台限制 / 服务被拦），
+            // 失败只记日志，不让它变成未捕获异常把页面带崩
+            runCatching {
+                ContextCompat.startForegroundService(
+                    context,
+                    Intent(context, TerracottaVPNService::class.java)
+                        .setAction(TerracottaVPNService.ACTION_START),
+                )
+            }.onFailure {
+                Logger.warning(TAG_LINK, "Cannot start the VPN service", it)
+            }
         } else {
-            runCatching { TerracottaAndroidAPI.getPendingVpnServiceRequest().reject() }
-            Terracotta.setWaiting(true)
+            runCatching {
+                TerracottaAndroidAPI.getPendingVpnServiceRequest().reject()
+                Terracotta.setWaiting(true)
+            }.onFailure {
+                Logger.warning(TAG_LINK, "Cannot reject the VPN request", it)
+            }
             PclHintHost.push(context.getString(R.string.terracotta_permission_vpn), PclHintTheme.Red)
         }
     }
@@ -2738,15 +2748,24 @@ private fun PclLinkContent() {
                     .collect { event ->
                         when (event) {
                             is EventViewModel.Event.Terracotta.RequestVPN -> withContext(Dispatchers.Main) {
-                                val intent = runCatching { VpnService.prepare(context) }.getOrNull()
-                                if (intent != null) {
-                                    vpnLauncher.launch(intent)
-                                } else {
-                                    ContextCompat.startForegroundService(
-                                        context,
-                                        Intent(context, TerracottaVPNService::class.java)
-                                            .setAction(TerracottaVPNService.ACTION_START),
-                                    )
+                                // 整段包起来：`vpnLauncher.launch()` 在页面已经离开组合时会抛
+                                // `IllegalStateException`（launcher 已注销），`startForegroundService()`
+                                // 在后台会被 Android 12+ 拦（`ForegroundServiceStartNotAllowedException`，
+                                // 也是 IllegalStateException 的子类）。这两类异常落在事件收集协程里没人接，
+                                // 直接就是「应用程序意外崩溃了」。收住之后最坏只是这次 VPN 没起来。
+                                runCatching {
+                                    val intent = VpnService.prepare(context)
+                                    if (intent != null) {
+                                        vpnLauncher.launch(intent)
+                                    } else {
+                                        ContextCompat.startForegroundService(
+                                            context,
+                                            Intent(context, TerracottaVPNService::class.java)
+                                                .setAction(TerracottaVPNService.ACTION_START),
+                                        )
+                                    }
+                                }.onFailure {
+                                    Logger.warning(TAG_LINK, "Cannot request the VPN service", it)
                                 }
                             }
 

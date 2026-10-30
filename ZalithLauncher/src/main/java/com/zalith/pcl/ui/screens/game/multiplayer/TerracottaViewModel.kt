@@ -40,6 +40,7 @@ import com.zalith.pcl.terracotta.TerracottaState
 import com.zalith.pcl.terracotta.TerracottaVPNService
 import com.zalith.pcl.terracotta.profile.TerracottaProfile
 import com.zalith.pcl.utils.copyText
+import com.zalith.pcl.utils.logging.Logger
 import com.zalith.pcl.viewmodel.EventViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -51,6 +52,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+
+private const val TAG_TERRACOTTA_VM = "TerracottaVM"
 
 class TerracottaViewModel(
     val gameHandler: GameHandler,
@@ -251,13 +254,21 @@ class TerracottaViewModel(
                     when (event) {
                         is EventViewModel.Event.Terracotta.RequestVPN -> {
                             withContext(Dispatchers.Main) {
-                                val intent = VpnService.prepare(activity)
-                                if (intent != null) {
-                                    vpnLauncher?.launch(intent)
-                                } else {
-                                    val vpnIntent = Intent(activity, TerracottaVPNService::class.java)
-                                        .setAction(TerracottaVPNService.ACTION_START)
-                                    activity.startForegroundService(vpnIntent)
+                                // 游戏内这条通道同样是「事件收集协程 + 界面」的组合：
+                                // 界面已经销毁时 `vpnLauncher.launch()` 会抛 ISE，
+                                // 后台拉起前台服务会被 Android 12+ 拦（ForegroundServiceStartNotAllowedException）。
+                                // 不接住就是闪退，接住最坏只是这次没弹授权框。
+                                runCatching {
+                                    val intent = VpnService.prepare(activity)
+                                    if (intent != null) {
+                                        vpnLauncher?.launch(intent)
+                                    } else {
+                                        val vpnIntent = Intent(activity, TerracottaVPNService::class.java)
+                                            .setAction(TerracottaVPNService.ACTION_START)
+                                        activity.startForegroundService(vpnIntent)
+                                    }
+                                }.onFailure {
+                                    Logger.warning(TAG_TERRACOTTA_VM, "Cannot request the VPN service", it)
                                 }
                             }
                         }
