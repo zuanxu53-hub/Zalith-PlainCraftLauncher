@@ -32,6 +32,7 @@ import com.zalith.pcl.game.launch.LogName
 import com.zalith.pcl.game.path.getVersionsHome
 import com.zalith.pcl.game.support.touch_controller.VibrationHandler
 import com.zalith.pcl.path.PathManager
+import com.zalith.pcl.game.renderer.Renderers
 import com.zalith.pcl.setting.AllSettings
 import com.zalith.pcl.setting.unit.getOrMin
 import com.zalith.pcl.ui.screens.content.elements.QuickPlay
@@ -203,7 +204,18 @@ class Version(
 
     private fun String.getValueOrDefault(default: String): String = this.takeIf { it.isNotEmpty() } ?: default
 
-    fun getRenderer(): String = versionConfig.renderer.getValueOrDefault(AllSettings.renderer.getValue())
+    /**
+     * 本次启动实际使用的渲染器唯一标识。
+     *
+     * 空串不再返回出去。以前空串表示设置里的「自动选择」，实际行为是
+     * `Renderers.setCurrentRenderer("")` → 回落到渲染器列表第一个；
+     * 现在直接把它解析成那一个，让「设置里显示的名字」和「启动时用的那个」
+     * 永远是同一个 —— 也顺带让「启动时再按设备偷偷换一个」这条路径彻底失效
+     * （那条路径在 MC 26.3 上挑错过渲染器，表现就是进游戏白屏）。
+     */
+    fun getRenderer(): String = versionConfig.renderer
+        .getValueOrDefault(AllSettings.renderer.getValue())
+        .ifEmpty { Renderers.getDefaultRendererId() }
 
     fun getDriver(): String = versionConfig.driver.getValueOrDefault(AllSettings.vulkanDriver.getValue())
 

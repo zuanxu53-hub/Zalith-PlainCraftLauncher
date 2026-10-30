@@ -81,6 +81,23 @@ object PclSettings {
     }.getOrDefault("")
 
     /**
+     * 默认渲染器唯一标识。
+     *
+     * 以前设置里有一项叫「自动选择」（存空串），实际行为是
+     * `Renderers.setCurrentRenderer("")` → 落到列表第一个渲染器。也就是说
+     * **「自动选择」这个名字是骗人的：它并不是按设备能力挑，只是用第一个**。
+     * 真正的按能力挑选另有一处（`RendererCompat.applyAutoCompat`），还会在启动时
+     * 悄悄把用户选的渲染器换掉 —— 26.3 上就是它挑错导致白屏。
+     *
+     * 现在下拉里不再有这两项：直接显示即将生效的那个渲染器，名字和实际行为一致。
+     */
+    fun defaultRendererId(): String = runCatching {
+        Renderers.init()
+        if (Renderers.getRenderers().isEmpty()) Renderers.init(reset = true)
+        Renderers.getRenderers().firstOrNull()?.getUniqueIdentifier()
+    }.getOrNull() ?: NGGL4ESRenderer.getUniqueIdentifier()
+
+    /**
      * 设备上已安装的 Java 运行库：[名称] to [显示名]。
      *
      * 该调用会扫描运行库目录，请在协程里调用。

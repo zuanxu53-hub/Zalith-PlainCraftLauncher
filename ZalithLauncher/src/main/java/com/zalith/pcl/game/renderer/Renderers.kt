@@ -119,4 +119,19 @@ object Renderers {
      * 当前是否设置了渲染器
      */
     fun isCurrentRendererValid(): Boolean = isInitialized && currentRenderer != null
+
+    /**
+     * 默认渲染器唯一标识。
+     *
+     * 就是注册顺序里的第一个（见 [init] 的 `addRenderers`），也正是
+     * `setCurrentRenderer("")` 会回落到的那一个 —— 所以「没设置」和「默认」
+     * 本来就是同一个东西，界面上不必再单列一项「自动选择」。
+     *
+     * 调用前会确保渲染器表已初始化；表真的空了才退回空串。
+     */
+    fun getDefaultRendererId(): String {
+        if (!isInitialized) init()
+        if (renderers.isEmpty()) init(reset = true)
+        return renderers.firstOrNull()?.getUniqueIdentifier().orEmpty()
+    }
 }

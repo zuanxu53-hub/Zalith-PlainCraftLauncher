@@ -59,7 +59,10 @@ import com.zalith.pcl.game.download.assets.platform.Platform
 import com.zalith.pcl.game.plugin.driver.DriverPluginManager
 import com.zalith.pcl.game.plugin.renderer_v2.RendererV2Data
 import com.zalith.pcl.game.renderer.Renderers
+import com.zalith.pcl.game.version.installed.GRAPHICS_API_CHOICES
 import com.zalith.pcl.game.version.installed.GraphicsApi
+import com.zalith.pcl.game.version.installed.forUi
+import com.zalith.pcl.game.version.installed.uiLabel
 import com.zalith.pcl.setting.AllSettings
 import com.zalith.pcl.ui.pcl2.data.PclSkinSettings
 import com.zalith.pcl.ui.pcl2.data.PclLogoType
@@ -302,8 +305,22 @@ fun PclSetupLaunchPage() {
 @Composable
 private fun PclRenderingCard() {
     val rendererOptions = remember { PclSettings.rendererOptions() }
-    val rendererIds = listOf("") + rendererOptions.map { it.first }
-    val rendererNames = mapOf("" to "自动选择") + rendererOptions.associate { it.first to it.second }
+    // 默认渲染器 = `Renderers` 列表第一个，也就是「没选过」时真正生效的那个。
+    // 以前这里有一项叫「自动选择」（存空串），名字听着像「按设备挑」，
+    // 实际只是回落到列表第一个；真正的按能力挑选是启动时另一处逻辑干的，
+    // 会把用户的选择悄悄换掉（26.3 上就是这样挑错、白屏的）。
+    // 现在下拉里只列真实渲染器，默认项显示的就是即将生效的那个。
+    val defaultRendererId = remember { PclSettings.defaultRendererId() }
+    val rendererIds = remember(rendererOptions, defaultRendererId) {
+        val ids = rendererOptions.map { it.first }
+        when {
+            ids.isEmpty() -> listOf(defaultRendererId)
+            defaultRendererId.isEmpty() || defaultRendererId in ids -> ids
+            else -> listOf(defaultRendererId) + ids
+        }
+    }
+    val rendererNames = rendererOptions.toMap()
+    val selectedRendererId = AllSettings.renderer.state.ifEmpty { defaultRendererId }
 
     val driverOptions = remember {
         runCatching { DriverPluginManager.getDriverList().map { it.id to it.name } }
@@ -339,11 +356,11 @@ private fun PclRenderingCard() {
                 ) {
                     PclComboBox(
                         items = rendererIds,
-                        selected = AllSettings.renderer.state,
+                        selected = selectedRendererId,
                         modifier = Modifier.weight(1f),
                         // PclComboBox 的 label 收到的是可空项（列表里允许出现 null），
                         // 所以这里要先兜住 null 再查名字。
-                        label = { id -> id?.let { rendererNames[it] ?: it.ifEmpty { "自动选择" } }.orEmpty() },
+                        label = { id -> id?.let { rendererNames[it] ?: it }.orEmpty() },
                         onSelect = { AllSettings.renderer.save(it) },
                     )
                     // 只有「选中新一代渲染器插件 + 它确实有可配置项」时才出现，和原生一致
@@ -366,17 +383,14 @@ private fun PclRenderingCard() {
                 labelOf = { driverNames[it] ?: it },
                 onSelect = { AllSettings.vulkanDriver.save(it) },
             )
+            // 图形 API 的标签与可选列表统一来自 `uiLabel` / `GRAPHICS_API_CHOICES`：
+            // 原来这里手写一套 when、实例设置页又用 displayName 兜一套，
+            // 结果就是那个页面里出现两个一模一样的「OpenGL」。
             SettingCombo(
                 label = "图形 API",
-                items = GraphicsApi.entries.toList(),
-                selected = AllSettings.graphicsApi.state,
-                labelOf = {
-                    when (it) {
-                        GraphicsApi.DEFAULT -> "跟随游戏设定"
-                        GraphicsApi.DEFAULT_OPENGL -> "默认 OpenGL"
-                        else -> it.displayName
-                    }
-                },
+                items = GRAPHICS_API_CHOICES,
+                selected = AllSettings.graphicsApi.state.forUi,
+                labelOf = { it.uiLabel },
                 onSelect = { AllSettings.graphicsApi.save(it) },
             )
             SettingCombo(
@@ -412,17 +426,16 @@ private fun PclRenderingCard() {
             SettingCheck("着色器日志输出（调试用）", AllSettings.dumpShaders)
             SettingCheck("Zink 垂直同步", AllSettings.vsyncInZink)
             SettingCheck("使用系统 Vulkan 驱动（Zink）", AllSettings.zinkPreferSystemDriver)
-            SettingCheck("Sodium / Iris 自动切换到兼容渲染器", AllSettings.autoRendererCompat)
             Spacer(Modifier.height(4.dp))
             PclHint(
                 text = "渲染器与驱动列表来自设备上实际安装的插件，未安装插件时仅显示内置 Turnip 驱动。",
                 theme = PclHintTheme.Blue,
             )
             PclHint(
-                text = "「Sodium / Iris 自动切换」只在渲染器为「自动选择」时生效：若 mods 里装了 Sodium、Iris " +
-                        "这类需要桌面 OpenGL 3.3+ 的模组，而当前解析到的渲染器属于 GL4ES 翻译层" +
-                        "（会在加载界面卡死且不报错），启动器会自动改用 Kopper Zink 启动这一次游戏，" +
-                        "不会改动你的设置。手动指定过渲染器时不会被替换。",
+                text = "渲染器只按上面选定的那个启动，不会再在启动时自动替换。" +
+                        "整合包里装了 Sodium、Iris 这类需要桌面 OpenGL 3.3+ 的模组时，" +
+                        "请手动选 Krypton Wrapper（Koopers Zink / 原生 GLES）；" +
+                        "选了 GL4ES 系的渲染器会卡在加载界面且不报错。",
                 theme = PclHintTheme.Blue,
             )
         }

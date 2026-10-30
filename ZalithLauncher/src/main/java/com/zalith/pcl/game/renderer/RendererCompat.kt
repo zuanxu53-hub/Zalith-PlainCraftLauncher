@@ -19,21 +19,8 @@
 package com.zalith.pcl.game.renderer
 
 import android.app.Activity
-import android.app.ActivityManager
-import android.content.Context
-import com.zalith.pcl.game.plugin.driver.DriverPluginManager
-import com.zalith.pcl.game.renderer.renderers.GL4ESRenderer
-import com.zalith.pcl.game.renderer.renderers.KopperZinkRenderer
 import com.zalith.pcl.game.renderer.renderers.NGGL4ESRenderer
 import com.zalith.pcl.game.version.installed.Version
-import com.zalith.pcl.game.version.installed.utils.isBiggerVer
-import com.zalith.pcl.game.version.installed.utils.isLowerVer
-import com.zalith.pcl.path.PathManager
-import com.zalith.pcl.setting.AllSettings
-import com.zalith.pcl.utils.device.VulkanCapabilities
-import com.zalith.pcl.utils.device.VulkanChecker
-import com.zalith.pcl.utils.device.normalizeMcVersion
-import com.zalith.pcl.utils.device.supportFor
 import com.zalith.pcl.utils.logging.Logger
 import java.io.File
 import java.util.zip.ZipFile
@@ -149,93 +136,36 @@ object RendererCompat {
         private set
 
     /**
-     * 启动前按**设备能力**决定渲染器，对应设置里的「渲染器：自动选择」。
+     * 渲染器兼容性检查（只诊断，不改选择）。
      *
-     * 判定顺序（不再「看到 Sodium 就切 Kopper Zink」）：
-     * 1. 用户在设置里显式选过渲染器 → 一律不动，只在明显不搭时写日志；
-     * 2. 实例里有 Sodium / Iris 这类**需要桌面 OpenGL 3.3+** 的模组，且本机 Vulkan 真能满足
-     *    zink 的要求（Vulkan ≥ 1.2、且该 MC 版本需要的 Vulkan 依赖齐全）→ Kopper Zink；
-     * 3. 设备支持 OpenGL ES 3.x → Krypton Wrapper（Pojav 的 `opengles3`，Android 上最通用的包装层）；
-     * 4. 只支持 GLES 2.x → GL4ES；
-     * 5. 候选渲染器都不支持当前 MC 版本 → 保持现状。
+     * 这里以前是「自动选择渲染器」：启动前按设备 GLES 版本、Vulkan 能力枚举，
+     * 以及整合包里有没有 Sodium / Iris，**在用户不知情的情况下**把渲染器换成
+     * Kopper Zink 或 GL4ES。整段逻辑已经删掉，原因有三条：
      *
-     * 为什么第 2 条要卡死：Mesa 的 zink 文档写明它从 Vulkan 1.0 起步，
-     * 但要提供 OpenGL 3.3（MC 1.17+ 与 Sodium 的门槛）需要 `VK_EXT_vertex_attribute_divisor` +
-     * `occlusionQueryPrecise`，且要有 `scalarBlockLayout`（或 Vulkan 1.2 核心特性）才稳。
-     * 只报 Vulkan 1.0 / 1.1 的厂商驱动（典型是 Kirin / Mali Bifrost）表面上有 Vulkan，
-     * 实际 `eglCreateContext` 直接失败，游戏打印 `GLFW: Failed to create window context!`，
-     * 之后 OpenGL / Vulkan 两个后端全灭 —— 也就是「启动一会儿自己退回启动器主页」。
-     * 这类机器上真正能用的是 GLES 包装层，所以**绝不能**把它换成 zink。
+     * 1. 它是猜的。判据（`reqGlEsVersion`、Vulkan 能力枚举）在厂商驱动上经常不准，
+     *    换过去之后 `eglCreateContext` 直接失败，表现就是**进游戏白屏**；
+     * 2. 它会悄悄覆盖用户的选择，日志里只有一行，出问题时几乎无法察觉
+     *    （26.3 上就是这么挑错渲染器的）；
+     * 3. 设置里那个「自动选择」的名字本身也是骗人的 —— 它只是回落到
+     *    `Renderers` 列表第一个，并不是真的「按能力挑」。
+     *
+     * 现在渲染器完全由设置决定（[Version.getRenderer] 把「没设过」解析成默认渲染器），
+     * 这里只保留一件事：整合包里装了要求桌面 OpenGL 3.3+ 的模组、而当前渲染器
+     * 撑不住时，往日志里写清楚后果。
+     *
+     * @return 永远是 null —— 不再替换渲染器，保留返回值只为兼容调用方。
      */
     fun applyAutoCompat(version: Version, activity: Activity? = null): RendererInterface? {
         if (Renderers.getRenderers().isEmpty()) return null
-        // 用户关掉了「自动适配渲染器」：只保留默认（列表里第一个）渲染器，不替他挑
-        if (!AllSettings.autoRendererCompat.getValue()) {
-            lastAutoDecision = "已关闭自动适配 → 使用默认渲染器"
-            return null
-        }
+        lastAutoDecision = null
         val current = runCatching { Renderers.getCurrentRenderer() }.getOrNull()
-
-        // 1. 用户显式指定过渲染器：尊重他的选择，只在能力明显不匹配时留下日志
-        if (version.getRenderer().isNotEmpty()) {
-            diagnoseExplicitChoice(version, current)
-            return null
-        }
-
-        if (activity == null) return null
-        val mcVersion = version.getVersionInfo()?.minecraftVersion ?: return null
-
-        val gles = deviceGlesVersion(activity)
-        val caps = probeVulkanCapabilities(version)
-        val vulkanText = caps?.versionString ?: "无"
-        val mods = scanDesktopGlMods(version.getGameDir())
-        val modList = mods.joinToString(" / ").ifEmpty { "无" }
-
-        // zink 能不能撑住这台设备的 Vulkan：版本 ≥ 1.2，且该 MC 版本要求的 Vulkan 依赖齐全
-        val zinkViable = caps != null &&
-                caps.isVersionSupported &&
-                caps.supportFor(normalizeMcVersion(mcVersion)).isSupported
-
-        // 2. 候选优先级（后面还要过「渲染器自己是否支持这个 MC 版本」这一关）
-        val candidates = buildList {
-            if (mods.isNotEmpty() && zinkViable) add(KopperZinkRenderer)
-            if (gles.first >= 3) add(NGGL4ESRenderer)
-            add(GL4ESRenderer)
-        }
-
-        val reason = buildString {
-            append("GLES ${gles.first}.${gles.second}，Vulkan $vulkanText，")
-            append("桌面GL模组 [$modList]，zink 可用=$zinkViable")
-        }
-
-        val picked = candidates.firstOrNull { supportsMcVersion(it, mcVersion) }
-        if (picked == null) {
-            lastAutoDecision = "$reason → 没有可用的内置渲染器，保持 ${current?.getRendererName() ?: "默认"}"
-            Logger.warning(TAG, "自动选择渲染器：$lastAutoDecision")
-            return null
-        }
-
-        // 需要桌面 GL 3.3+ 的模组却用不上 zink：把后果写清楚，别让人以为自动选择没生效
-        if (mods.isNotEmpty() && !zinkViable) {
-            Logger.warning(
-                TAG,
-                "检测到需要桌面 OpenGL 3.3+ 的模组（$modList），但本机 Vulkan（$vulkanText）不满足 zink 的要求" +
-                        "（需要 Vulkan 1.2 及以上与完整扩展），已使用 ${picked.getRendererName()}；" +
-                        "这类模组在该渲染器上可能无法工作或卡在加载界面。"
-            )
-        }
-
-        lastAutoDecision = "$reason → ${picked.getRendererName()}"
-        Logger.info(TAG, "自动选择渲染器：$lastAutoDecision")
-
-        if (current != null && current.getUniqueIdentifier() == picked.getUniqueIdentifier()) return null
-
-        Renderers.setCurrentRenderer(picked.getUniqueIdentifier(), retryToFirstOnFailure = false)
-        return picked
+        diagnoseExplicitChoice(version, current)
+        return null
     }
 
     /**
-     * 用户显式选过渲染器时的诊断：只在「明显不搭」时写一条日志，绝不改动选择。
+     * 诊断：整合包里的模组要求桌面 GL 3.3+，当前渲染器却是 GL4ES 翻译层。
+     * 只在「明显不搭」时写一条日志，绝不改动用户的选择。
      */
     private fun diagnoseExplicitChoice(version: Version, current: RendererInterface?) {
         if (current == null) return
@@ -250,50 +180,5 @@ object RendererCompat {
                         "属于 GL4ES 翻译层、无法支撑，游戏很可能卡在加载界面。请在「设置 → 启动 → 渲染器」中改用 Krypton Wrapper。"
             )
         }
-    }
-
-    /** 渲染器自己声明的 MC 版本支持范围 */
-    private fun supportsMcVersion(renderer: RendererInterface, mcVersion: String): Boolean {
-        val min = renderer.getMinMCVersion()
-        val max = renderer.getMaxMCVersion()
-        if (min != null && mcVersion.isLowerVer(min)) return false
-        if (max != null && mcVersion.isBiggerVer(max)) return false
-        return true
-    }
-
-    /** 设备支持的 OpenGL ES 版本（major, minor），取系统声明的最高值 */
-    private fun deviceGlesVersion(context: Context): Pair<Int, Int> {
-        return runCatching {
-            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-            val raw = am.deviceConfigurationInfo.reqGlEsVersion
-            (raw shr 16) to (raw and 0xFFFF)
-        }.getOrDefault(0 to 0)
-    }
-
-    /** 按当前驱动枚举 Vulkan 能力；同一进程内按驱动缓存，避免每次启动都重新建实例 */
-    private val vulkanCapabilitiesCache: MutableMap<String, VulkanCapabilities?> = mutableMapOf()
-
-    private fun probeVulkanCapabilities(version: Version): VulkanCapabilities? {
-        val driver = runCatching { DriverPluginManager.getDriver(version.getDriver()) }.getOrNull()
-        val useDriverPlugin = driver != null && !driver.isLauncher
-        val cacheKey = if (useDriverPlugin) driver.path else "system"
-
-        vulkanCapabilitiesCache[cacheKey]?.let { return it }
-        val caps = runCatching {
-            if (useDriverPlugin) {
-                VulkanChecker.checkCapabilities(
-                    driverPath = null,
-                    nativeDir = driver.path,
-                    cacheDir = File(PathManager.DIR_CACHE, "vulkan_temp").absolutePath
-                )
-            } else {
-                VulkanChecker.checkCapabilities(driverPath = null, nativeDir = null, cacheDir = null)
-            }
-        }.onFailure {
-            Logger.warning(TAG, "枚举 Vulkan 能力失败，按「不可用」处理", it)
-        }.getOrNull()
-
-        vulkanCapabilitiesCache[cacheKey] = caps
-        return caps
     }
 }

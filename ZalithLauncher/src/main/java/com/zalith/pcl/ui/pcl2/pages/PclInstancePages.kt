@@ -105,7 +105,10 @@ import com.zalith.pcl.ui.pcl2.components.PclPillButton
 import com.zalith.pcl.game.version.installed.SettingState
 import com.zalith.pcl.game.version.installed.Version
 import com.zalith.pcl.game.version.installed.VersionConfig
+import com.zalith.pcl.game.version.installed.GRAPHICS_API_CHOICES
 import com.zalith.pcl.game.version.installed.GraphicsApi
+import com.zalith.pcl.game.version.installed.forUi
+import com.zalith.pcl.game.version.installed.uiLabel
 import com.zalith.pcl.utils.platform.bytesToMB
 import com.zalith.pcl.utils.platform.getTotalMemory
 import com.zalith.pcl.utils.platform.getUsedMemory
@@ -158,6 +161,7 @@ import com.zalith.pcl.ui.pcl2.data.LocalPclRuntime
 import com.zalith.pcl.ui.pcl2.data.PclLeftLabels
 import com.zalith.pcl.ui.pcl2.data.PclModIcons
 import com.zalith.pcl.ui.pcl2.data.PclSettings
+import com.zalith.pcl.setting.AllSettings
 import com.zalith.pcl.ui.pcl2.data.settingStateLabel
 import com.zalith.pcl.ui.pcl2.data.settingStateOrder
 import com.zalith.pcl.ui.pcl2.theme.PclDimens
@@ -1138,19 +1142,45 @@ private fun PclInstanceSetupPage(version: Version) {
             }
             Spacer(Modifier.height(9.dp))
             PclSetupRow("图形 API") {
-                val items = listOf("跟随全局设置" to "") + GraphicsApi.entries.map { api ->
-                    (api.displayName.ifBlank { "默认（游戏设定）" }) to api.name
-                }
-                val current = config.graphicsApi?.name.orEmpty()
+                // 标签统一走 `uiLabel`。原来这里用的是 `displayName`，
+                // 而 `DEFAULT_OPENGL` 的 displayName 就是 `OPENGL` 的「OpenGL」，
+                // 于是下拉里并排出现两个一模一样的「OpenGL」，谁也说不清该选哪个。
+                val globalApi = AllSettings.graphicsApi.state.forUi
+                val items = listOf(null to "跟随全局设置（${globalApi.uiLabel}）") +
+                        GRAPHICS_API_CHOICES.map { it to it.uiLabel }
+                val selected = config.graphicsApi?.forUi
                 PclComboBox(
                     items = items,
-                    selected = items.firstOrNull { it.second == current } ?: items.first(),
-                    label = { it?.first.orEmpty() },
+                    selected = items.firstOrNull { it.first == selected } ?: items.first(),
+                    label = { it?.second.orEmpty() },
                     modifier = Modifier.fillMaxWidth(),
                     onSelect = { option ->
-                        config.graphicsApi = GraphicsApi.entries.find { it.name == option.second }
+                        config.graphicsApi = option.first
                         saveToken()
+                        if (option.first == GraphicsApi.VULKAN) {
+                            // Android 上的画面由启动器用 EGL + OpenGL 桥出来，游戏自己的
+                            // Vulkan 后端拿不到可用的窗口表面 —— 选它就是白屏 / 闪退回启动器。
+                            // 26.2 起才有的选项，坑很深，选完必须说清楚。
+                            PclHintHost.push(
+                                "Vulkan 在 Android 上会白屏：画面是启动器用 OpenGL 桥出来的，" +
+                                        "游戏自己的 Vulkan 后端拿不到窗口。建议改回「跟随游戏设定」。",
+                                PclHintTheme.Red,
+                            )
+                        }
                     },
+                )
+            }
+            // 提示条放在 `PclSetupRow` **外面**：它的 content 只是 Row 里一个 weight(1f) 的 Box，
+            // 塞两个可组合进去会直接叠在一起（Box 默认叠放），看起来像文字压在下拉框上。
+            // 放外面还有个好处：它一直挂着，不像 `PclHintHost` 三秒就消失 ——
+            // 白屏这种事得让用户随时能看见原因。
+            if (config.graphicsApi == GraphicsApi.VULKAN) {
+                PclHint(
+                    text = "Android 上选 Vulkan 会白屏：画面是启动器用 EGL + OpenGL 桥出来的，" +
+                            "游戏自带的 Vulkan 后端拿不到窗口表面。26.2 起游戏虽然有 Vulkan 后端，" +
+                            "但在手机上走这条路目前进不去，请改回「跟随游戏设定」。",
+                    theme = PclHintTheme.Red,
+                    modifier = Modifier.padding(start = 110.dp, top = 4.dp, end = 10.dp),
                 )
             }
             Spacer(Modifier.height(9.dp))

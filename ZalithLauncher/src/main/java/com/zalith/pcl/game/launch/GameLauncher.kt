@@ -344,12 +344,21 @@ class GameLauncher(
         appendInfo("Device model: ${Build.MANUFACTURER}, ${Build.MODEL}")
         appendInfo("API version: ${Build.VERSION.SDK_INT}")
         appendInfo("Vulkan: ${describeVulkanSupport(activity)}")
-        //标注一下「自动选择」最终落到了哪个渲染器：出问题时日志里能直接看出选的是谁
-        val autoPick = version.getRenderer().isEmpty()
-        val rendererLabel = if (autoPick) "${renderer.getRendererName()} (自动选择)" else renderer.getRendererName()
+        // 标一下这个渲染器是「用户点过名」还是「默认落到它头上」的：
+        // 出问题时日志里能一眼看出是不是「我根本没选，是它自己上的」。
+        // 「自动选择」已经删掉了，空值现在等价于默认渲染器（见 `Version.getRenderer`）。
+        val explicitRenderer = version.getVersionConfig().renderer
+            .ifEmpty { AllSettings.renderer.getValue() }
+        val usingDefault = explicitRenderer.isEmpty()
+        val rendererLabel = if (usingDefault) {
+            "${renderer.getRendererName()} (默认)"
+        } else {
+            renderer.getRendererName()
+        }
         appendInfo("Renderer: $rendererLabel")
-        //自动档把判定依据也打出来：GLES 版本 / Vulkan 能力 / 为什么选它
-        if (autoPick) RendererCompat.lastAutoDecision?.let { appendInfo("Renderer Auto: $it") }
+        if (usingDefault) {
+            appendInfo("Renderer Default: 没有手动指定渲染器，本次使用默认的 ${renderer.getRendererName()}")
+        }
         renderer.getRendererSummary()?.let { summary ->
             appendInfo("Renderer Summary: $summary")
         }

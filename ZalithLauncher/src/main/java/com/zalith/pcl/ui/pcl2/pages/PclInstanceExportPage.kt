@@ -202,6 +202,27 @@ private const val EXTRA_EXCLUDE_RULES = "*.log|*.dat_old|*.BakaCoreInfo|hmclvers
 /** 导出失败的日志 tag。 */
 private const val TAG_EXPORT = "PclExport"
 
+/**
+ * 生成导出文件的默认名：`名字-版本.后缀`。
+ *
+ * 两件事必须在这里做：
+ * 1. **后缀跟着导出格式走**。选 Modrinth 格式却给 `.zip`，存出来就是一个披着
+ *    zip 皮的 `.mrpack`；发给别人后，按扩展名认格式的启动器会当成普通压缩包，
+ *    直接导不进去（「导出文件有问题」有很大一部分是这个）。
+ * 2. **剔掉文件名里的非法字符**。`/ \ : * ? " < > |` 在 SAF 的 provider 里
+ *    会让 `CreateDocument` 直接抛异常，出口是「导出失败」或一个空文件。
+ */
+private fun packFileName(name: String, version: String, suffix: String): String {
+    val bad = Regex("""[\\/:*?"<>|\u0000-\u001f]""")
+    fun clean(raw: String, fallback: String): String = raw
+        .replace(bad, "_")
+        .trim()
+        .trimEnd('.')
+        .ifBlank { fallback }
+
+    return "${clean(name, "modpack")}-${clean(version, "1.0.0")}.$suffix"
+}
+
 /** 把当前勾选的选项翻译成规则列表（顺序 = 界面顺序，与 PCL 的 `GetAllOptions` 一致）。 */
 private fun collectRules(options: List<PclExportOption>, checked: Map<String, Boolean>): List<String> {
     val lines = ArrayList<String>()
@@ -611,9 +632,12 @@ fun PclInstanceExportPage(version: Version) {
                     version = version,
                     onFinished = {
                         running = false
-                        // 提示里带后缀：用户选保存位置时未必补了扩展名，靠它确认存成了什么文件
-                        val suffix = if (advancedModrinth) "mrpack" else "zip"
-                        PclHintHost.push("整合包已导出：$name.$suffix", PclHintTheme.Green)
+                        // 提示里带完整文件名：用户选保存位置时未必补了扩展名，靠它确认存成了什么文件
+                        val actualSuffix = if (advancedModrinth) "mrpack" else "zip"
+                        PclHintHost.push(
+                            "整合包已导出：${packFileName(name, ver, actualSuffix)}",
+                            PclHintTheme.Green,
+                        )
                     },
                     onError = { th ->
                         running = false
@@ -781,7 +805,9 @@ fun PclInstanceExportPage(version: Version) {
                 contentPadding = PaddingValues(start = 25.dp, top = 37.dp, end = 23.dp, bottom = 20.dp),
             ) {
                 PclHint(
-                    text = "建议仅在无法稳定连接 CurseForge 或 Modrinth 时才打包资源文件。",
+                    text = "不勾选「打包资源文件」时，导入方要联网把每个模组、资源包重新下一遍 ——" +
+                            "作者删过源、CDN 换过直链的那些文件会在导入时报「Failed downloads」。" +
+                            "想把整合包发给别人、又不想让对方卡在下载上，就勾上它。",
                     theme = PclHintTheme.Yellow,
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
@@ -850,8 +876,15 @@ fun PclInstanceExportPage(version: Version) {
             logoScale = 1.1f,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 20.dp),
             onClick = {
+                // 默认文件名必须跟着导出格式走：选 Modrinth 却给 `.zip`，
+                // 存出来的是一个披着 zip 皮的 mrpack，发给别人之后
+                // 「按扩展名认格式」的启动器会当成普通压缩包处理，直接导不进去。
                 createDocument.launch(
-                    "${packName.ifBlank { version.getVersionName() }}-${packVersion.ifBlank { "1.0.0" }}.zip",
+                    packFileName(
+                        packName.ifBlank { version.getVersionName() },
+                        packVersion.ifBlank { "1.0.0" },
+                        if (advancedModrinth) "mrpack" else "zip",
+                    ),
                 )
             },
         )

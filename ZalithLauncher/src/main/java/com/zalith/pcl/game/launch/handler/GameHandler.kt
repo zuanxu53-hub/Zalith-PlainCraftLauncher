@@ -141,7 +141,20 @@ class GameHandler(
                         }
                     }
                 }
-                else -> set(graphicsOption, graphicsApi.option)
+                else -> {
+                    set(graphicsOption, graphicsApi.option)
+                    if (graphicsApi == GraphicsApi.VULKAN) {
+                        // 显式选 Vulkan 的分支不会被上面的「改回 opengl」逻辑碰，
+                        // 所以白屏时日志里必须留下能对上的线索，否则只能靠猜。
+                        appendInfo(
+                            "图形 API 已按设置强制为 Vulkan。" +
+                                    "Android 上画面是启动器用 EGL + OpenGL 桥接出来的，" +
+                                    "游戏自带的 Vulkan 后端拿不到可用窗口表面，" +
+                                    "典型表现是进游戏后白屏或直接退回启动器主页。" +
+                                    "如果这一条之后没有画面，请把「图形 API」改成「跟随游戏设定」。"
+                        )
+                    }
+                }
             }
 
             loadLanguage(version.getVersionInfo()!!.minecraftVersion)

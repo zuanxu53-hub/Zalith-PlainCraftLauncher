@@ -403,4 +403,44 @@ enum class GraphicsApi(
     VULKAN("Vulkan", "\"vulkan\"")
 }
 
+/**
+ * 界面上的显示名。
+ *
+ * `displayName` 不能直接拿来当标签：`DEFAULT_OPENGL` 的 displayName 就是 `OPENGL` 的
+ * 「OpenGL」，两者在设置里并排出现时就是两个一模一样的「OpenGL」，用户根本没法选
+ * （截图里那两个 OpenGL 就是这么来的）。而 `DEFAULT` 的 displayName 是空串，
+ * 实例设置页自己兜了一句「默认（游戏设定）」，全局设置页又写成「跟随游戏设定」，
+ * 同一个东西两套说法。
+ *
+ * 统一从这里取标签，两个页面就不会再各写一套、各跑偏一套。
+ */
+val GraphicsApi.uiLabel: String
+    get() = when (this) {
+        GraphicsApi.DEFAULT -> "跟随游戏设定"
+        // 与 DEFAULT 行为一致（只在 options.txt 没写过、或残留 vulkan 时才落 opengl），
+        // 所以界面上不单列，存量配置沿用这个标签
+        GraphicsApi.DEFAULT_OPENGL -> "跟随游戏设定"
+        GraphicsApi.OPENGL -> "强制 OpenGL"
+        GraphicsApi.VULKAN -> "Vulkan"
+    }
+
+/**
+ * 界面上真正可选的那几项。
+ *
+ * `DEFAULT_OPENGL` 不列出来：它和 `DEFAULT` 在 `GameHandler` 里走的是同一个分支、
+ * 写出 `options.txt` 的值也一样，摆两条只会让人以为有什么不同。
+ *
+ * **枚举本身不能删值** —— `VersionConfig.writeToParcel` 写的是 `ordinal`，
+ * 删一项会让所有存量配置的图形 API 整体错位。
+ */
+val GRAPHICS_API_CHOICES: List<GraphicsApi> = listOf(
+    GraphicsApi.DEFAULT,
+    GraphicsApi.OPENGL,
+    GraphicsApi.VULKAN,
+)
+
+/** 把存量配置里的 `DEFAULT_OPENGL` 归一到界面上那一项，避免下拉选不中。 */
+val GraphicsApi.forUi: GraphicsApi
+    get() = if (this == GraphicsApi.DEFAULT_OPENGL) GraphicsApi.DEFAULT else this
+
 private fun getSettingStateNotNull(type: SettingState?) = type ?: SettingState.FOLLOW_GLOBAL

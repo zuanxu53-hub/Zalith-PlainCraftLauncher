@@ -99,7 +99,11 @@ class PackExporter(
     ) = withContext(Dispatchers.IO) {
         val exportCachePath = PathManager.DIR_CACHE_MODPACK_EXPORTER
         val tempPath = File(exportCachePath, "temp")
-        val pack = File(exportCachePath, "${exportInfo.name}.${exporter.fileSuffix}")
+        // 缓存里的中间文件名必须清洗：`exportInfo.name` 是用户手填的，
+        // 带 `/`、`:`、`*` 这类字符（「正式版/1.0」这种写法很常见）时，
+        // `FileOutputStream` 会抛 `FileNotFoundException: ... (Not a directory)`，
+        // 出口是「导出失败」，而且提示里完全看不出是名字的问题。
+        val pack = File(exportCachePath, "${cacheFileName(exportInfo.name)}.${exporter.fileSuffix}")
 
         listOf(
             buildPhase {
@@ -173,4 +177,18 @@ class PackExporter(
         Logger.debug(TAG, "Created directory: $this")
         return this
     }
+}
+
+/**
+ * 落盘用的文件名：把文件系统不认的字符换成下划线。
+ *
+ * 只清洗**中间产物 / 保存用的名字**；写进 `manifest.json` / `modrinth.index.json`
+ * 的 `name` 字段仍然是用户原文，不受影响。
+ */
+private fun cacheFileName(raw: String): String {
+    val cleaned = raw
+        .replace(Regex("""[\\/:*?"<>|\u0000-\u001f]"""), "_")
+        .trim()
+        .trimEnd('.')
+    return cleaned.ifBlank { "modpack" }
 }
