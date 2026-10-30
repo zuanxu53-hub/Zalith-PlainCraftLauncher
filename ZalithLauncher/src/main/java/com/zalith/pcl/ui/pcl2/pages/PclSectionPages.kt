@@ -76,6 +76,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.zalith.pcl.BuildKeys
 import com.zalith.pcl.coroutine.Task
 import com.zalith.pcl.coroutine.TaskStage
 import com.zalith.pcl.coroutine.TaskSystem
@@ -1724,6 +1725,31 @@ private val PCL_COMMON_GAME_VERSIONS = listOf(
 )
 
 /**
+ * 原版 Minecraft 版本号的三种合法写法。
+ *
+ * 搜索平台的 `gameVersion` 参数只认这类字符串，传实例名（`KPBL`、`1.20.1-Fabric`）
+ * 服务端不会报错，但一定搜不到东西 —— 所以筛选列表必须先按这个筛一遍。
+ */
+private val PLAIN_GAME_VERSION = Regex(
+    """^(\d+(\.\d+)+|\d{2}w\d{2}[a-z]|\d+(\.\d+)+-(pre|rc)\d+)$"""
+)
+
+/** 是否是标准的原版版本号（正式版 / 快照 / 预发布），用来把自定义实例名挡在筛选列表外。 */
+private fun String.isPlainGameVersion(): Boolean = PLAIN_GAME_VERSION.matches(trim())
+
+/**
+ * 搜索卡片里「镜像源」的短标签。
+ *
+ * 设置页那一套文案是「尽量使用官方源」这种长句，塞进半行宽的下拉框会被截断，
+ * 这里用短词，语义不变。
+ */
+private fun mirrorSourceShortLabel(type: MirrorSourceType): String = when (type) {
+    MirrorSourceType.AUTO -> "自动"
+    MirrorSourceType.OFFICIAL -> "官方"
+    MirrorSourceType.MIRROR -> "MCIM 镜像"
+}
+
+/**
  * 按平台换算筛选项。
  *
  * Zalith 的请求构造函数对类别 / 加载器用的是安全转换
@@ -1901,13 +1927,25 @@ private fun PclDownloadResourcePage(nav: PclNavController, section: Int) {
     val tagChoices = remember(tagPlatform, classes) { pclCategoryChoices(tagPlatform, classes) }
     val modLoaderChoices = remember(tagPlatform, classes) { pclModLoaderChoices(tagPlatform, classes) }
 
-    // 版本候选：任意 + 当前已装版本 + PCL 预设的常用版本
+    // 版本候选：任意 + 当前已装版本（仅在它是原版版本号时）+ PCL 预设的常用版本。
+    //
+    // 【为什么不直接把已装版本名塞进来】`currentVersion` 给的是 `versions/<目录名>`，
+    // 用户改过名的实例（`KPBL`、`1.20.1-整合包测试`、`通用`）会原样出现在下拉里，
+    // 既看不出是什么版本，选了也搜不到东西（平台只认 `1.21.1` 这种原版版本号）。
+    // 所以这里只放真正的原版版本号，实例名一律不进筛选列表。
     val installedVersion = runtime.currentVersion.value?.getVersionName()
     val versionChoices = remember(installedVersion) {
         listOf<String?>(null) +
-            listOfNotNull(installedVersion) +
+            listOfNotNull(installedVersion?.takeIf { it.isPlainGameVersion() }) +
             PCL_COMMON_GAME_VERSIONS.filter { it != installedVersion }
     }
+
+    // 下载线路（官方 / MCIM 镜像）：直接读写全局「资源平台下载源」，
+    // 与 设置 → 其他 → 下载 里那一项是同一个值，改哪边都一样。
+    val mirrorSource = AllSettings.assetPlatformSource.state
+    // 官方 CurseForge 强制要求 x-api-key；当前构建没配时选「官方」必定 403，
+    // 与其让用户对着「(403) 您没有权限访问此资源」猜，不如提前说清楚。
+    val officialCfUnavailable = remember { BuildKeys.CURSEFORGE_API.isBlank() }
 
     // ---- 结果状态
     // loading / error 是纯瞬态，保持 `remember`；结果页与页码跟着槽位走，
@@ -1996,7 +2034,8 @@ private fun PclDownloadResourcePage(nav: PclNavController, section: Int) {
     //
     // 注意 `keyword`（搜索框文字）不在此列：它是边打边变的，仍按原版走
     // 「点搜索按钮 / 键盘回车」，否则每敲一个字都会发一次请求。
-    val filterKey = listOf<Any?>(source, tag, sortField, gameVersion, modLoader)
+    // 镜像源也在里面：切换线路必须重搜一次，否则看到的是旧线路的结果
+    val filterKey = listOf<Any?>(source, tag, sortField, gameVersion, modLoader, mirrorSource)
     // 上次真正发起搜索时的条件，存在槽位里：返回页面时它跟当前条件一致，
     // 于是不会把「从详情页回来」错当成「刚改了筛选」再搜一次。
     // `null` = 这个分栏还没搜过，首次组合只登记、不触发（首屏那次由上面的 `LaunchedEffect(classes)` 负责）。
@@ -2027,6 +2066,16 @@ private fun PclDownloadResourcePage(nav: PclNavController, section: Int) {
                     text = PclStrings.LangDownloadCompSearchRun,
                     colorState = PclColorState.Highlight,
                     onClick = { search(0) },
+                )
+                Spacer(Modifier.width(8.dp))
+                // 刷新按钮（PageResource 顶部的刷新）。放在搜索框这一行，
+                // 给下面的「加载器 / 镜像源」腾出并列的位置。
+                PclIconButton(
+                    logo = PclIcons.refresh,
+                    size = 28.dp,
+                    logoScale = 0.85f,
+                    contentDescription = PclStrings.LangRefresh,
+                    onClick = { search(pageIndex) },
                 )
             }
 
@@ -2107,18 +2156,33 @@ private fun PclDownloadResourcePage(nav: PclNavController, section: Int) {
                     )
                 }
                 Spacer(Modifier.width(12.dp))
-                // 刷新按钮（PageResource 顶部的刷新）
-                PclIconButton(
-                    logo = PclIcons.refresh,
-                    size = 28.dp,
-                    logoScale = 0.85f,
-                    contentDescription = PclStrings.LangRefresh,
-                    onClick = { search(pageIndex) },
-                )
+                // 下载线路：官方 / MCIM 镜像切换（与 设置 → 其他 → 下载 的「资源平台下载源」同一项）
+                PclFilterRow(label = "镜像源", modifier = Modifier.weight(1f)) {
+                    PclComboBox(
+                        items = MirrorSourceType.entries.toList(),
+                        selected = mirrorSource,
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { item -> item?.let { mirrorSourceShortLabel(it) } ?: "自动" },
+                        onSelect = { AllSettings.assetPlatformSource.save(it) },
+                    )
+                }
             }
         }
 
         Spacer(Modifier.height(15.dp))
+
+        // 官方 CurseForge 强制要求 x-api-key。本构建没配 key 时选「官方」一定 403，
+        // 提前点明，比等用户看到「(403) 您没有权限访问此资源」再自己猜要省事。
+        if (officialCfUnavailable && mirrorSource == MirrorSourceType.OFFICIAL &&
+            (classes == PlatformClasses.MOD || classes == PlatformClasses.MOD_PACK)
+        ) {
+            PclHint(
+                text = "当前走「官方」线路，但官方 CurseForge 需要 API Key、本版本没有内置，" +
+                        "搜索 CurseForge 会返回 403。把上面「镜像源」切到「MCIM 镜像」即可正常搜索。",
+                theme = PclHintTheme.Yellow,
+            )
+            Spacer(Modifier.height(15.dp))
+        }
 
         // ---- 结果（PageResource.PanContent → CardProjects → PanProjects Margin=12）
         when {

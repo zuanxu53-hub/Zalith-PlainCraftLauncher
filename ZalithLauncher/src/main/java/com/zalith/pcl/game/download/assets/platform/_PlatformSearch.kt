@@ -30,6 +30,7 @@ import com.zalith.pcl.game.download.assets.platform.modrinth.ModrinthSearcher
 import com.zalith.pcl.game.download.assets.platform.modrinth.models.ModrinthVersion
 import com.zalith.pcl.game.download.assets.utils.localizedModSearchKeywords
 import com.zalith.pcl.setting.AllSettings
+import com.zalith.pcl.setting.enums.MirrorSourceType
 import com.zalith.pcl.ui.screens.content.download.assets.elements.DownloadAssetsState
 import com.zalith.pcl.ui.screens.content.download.assets.elements.SearchAssetsState
 import com.zalith.pcl.utils.isChinaMainland
@@ -112,8 +113,12 @@ suspend fun <E: AbstractPlatformSearcher, T> mirroredPlatformSearcher(
 fun mirroredCurseForgeSource(
     enabledMirror: Boolean = isChinaMainland()
 ): List<CurseForgeSearcher> {
-    val source = resolveMirrorPriority(AllSettings.assetPlatformSource.getValue(), mainland = enabledMirror)
-    val mirrorSource = mirrorCurseForgeSearcher.takeIf { enabledMirror }
+    val preferred = AllSettings.assetPlatformSource.getValue()
+    val source = resolveMirrorPriority(preferred, mainland = enabledMirror)
+    // 用户显式选「镜像」时不再按地区否决：设置项本来就是手动开关，
+    // 选了镜像却一直走官方，界面上看不出任何区别，只会让人以为切换没生效。
+    val mirrorSource = mirrorCurseForgeSearcher
+        .takeIf { enabledMirror || preferred == MirrorSourceType.MIRROR }
     return when (source) {
         MirrorPriority.OFFICIAL -> listOf(curseForgeSearcher)
         MirrorPriority.MIRROR_FIRST ->
@@ -127,8 +132,11 @@ fun mirroredCurseForgeSource(
 fun mirroredModrinthSource(
     enabledMirror: Boolean = isChinaMainland()
 ): List<ModrinthSearcher> {
-    val source = resolveMirrorPriority(AllSettings.assetPlatformSource.getValue(), mainland = enabledMirror)
-    val mirrorSource = mirrorModrinthSearcher.takeIf { enabledMirror }
+    val preferred = AllSettings.assetPlatformSource.getValue()
+    val source = resolveMirrorPriority(preferred, mainland = enabledMirror)
+    // 同 CurseForge：显式选镜像时不被地区判断否决
+    val mirrorSource = mirrorModrinthSearcher
+        .takeIf { enabledMirror || preferred == MirrorSourceType.MIRROR }
     return when (source) {
         MirrorPriority.OFFICIAL -> listOf(modrinthSearcher)
         MirrorPriority.MIRROR_FIRST ->
