@@ -26,6 +26,7 @@ import androidx.annotation.Keep
 import androidx.core.net.toUri
 import com.zalith.pcl.BuildKeys
 import com.zalith.pcl.context.GlobalContext
+import com.zalith.pcl.filemanager.FileManagerLauncher
 import com.zalith.pcl.game.launch.Launcher
 import com.zalith.pcl.utils.file.shareFile
 import com.zalith.pcl.utils.killProgress
@@ -46,15 +47,27 @@ object ZLNativeInvoker {
         (GlobalContext as? Activity)?.let { activity ->
             Logger.info(TAG, "collect link: $link")
             activity.runOnUiThread {
-                if (link.startsWith("file:")) {
-                    val newLink = formatFilePath(link) ?: return@runOnUiThread
-                    Logger.info(TAG, "open link: $newLink")
+                // 本地路径也走这里：游戏里的「打开资源包文件夹 / 打开截图文件夹」
+                // 在 Linux 上是 `xdg-open <路径>`，被 `java_exec_hooks.c` 拦下来后
+                // 原样丢进 openLink。以前只有 `file:` 开头的才算本地路径，
+                // 裸的 `/storage/emulated/0/...` 会被当成网址交给 ACTION_VIEW，
+                // 没有 scheme 的 Uri 没有任何应用能接 → 表现就是「点了没反应」。
+                val localPath = localPathOf(link)
+                if (localPath != null) {
+                    Logger.info(TAG, "open link: $localPath")
 
-                    val file = File(newLink)
-                    if (link.endsWith('/')) {
+                    val file = File(localPath)
+                    if (file.isDirectory || link.endsWith('/')) {
                         //可能是一个目录，创建并发起浏览目录请求
                         file.mkdirs()
-                        staticLauncher?.openPath(file)
+                        // 原生界面在跑时交给它的文件管理器；PCL2 界面 / 后台时
+                        // staticLauncher 是 null，直接开启动器自己的文件管理器兜底
+                        val opened = staticLauncher?.let {
+                            runCatching { it.openPath(file) }.isSuccess
+                        } == true
+                        if (!opened) {
+                            runCatching { FileManagerLauncher.launch(activity, file.absolutePath) }
+                        }
                     } else {
                         shareFile(activity, file)
                         Logger.info(TAG, "In-game Share File: ${file.absolutePath}")
@@ -64,6 +77,17 @@ object ZLNativeInvoker {
                 }
             }
         }
+    }
+
+    /**
+     * 这个字符串是不是一个本地路径（`file:` URI 或者裸的绝对路径）。
+     *
+     * 只有「确实存在」的绝对路径才算 —— 否则 `/` 开头的网址会被误判成文件。
+     */
+    private fun localPathOf(link: String): String? {
+        if (link.startsWith("file:")) return formatFilePath(link)
+        if (link.startsWith("/") && File(link).exists()) return link
+        return null
     }
 
     /**
