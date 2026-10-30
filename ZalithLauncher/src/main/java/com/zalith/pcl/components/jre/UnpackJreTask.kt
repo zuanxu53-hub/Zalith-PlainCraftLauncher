@@ -27,8 +27,12 @@ import com.zalith.pcl.game.multirt.RuntimesManager
 import com.zalith.pcl.utils.device.Architecture
 import com.zalith.pcl.utils.file.readString
 import com.zalith.pcl.utils.logging.Logger
+import java.io.InputStream
 
 private const val TAG = "UnpackJreTask"
+
+/** 每个内置运行环境都必带的主体包名（与分架构的 `bin-<abi>.tar.xz` 配套）。 */
+private const val UNIVERSAL_PACK = "universal.tar.xz"
 
 class UnpackJreTask(
     private val context: Context,
@@ -93,9 +97,20 @@ class UnpackJreTask(
             val allPacks = assetManager.list(jre.jrePath) ?: return@runCatching false
             //检查是否包含符合当前设备架构的环境
             val runtime = getRuntimeByArch()
-            allPacks.contains(runtime).also {
+            val supported = allPacks.contains(runtime).also {
                 Logger.info(TAG, "Device requires environment: ${jre.jrePath}/$runtime, contains = $it")
             }
+            // 架构包在、但 universal 主体不在 —— 这不是「本机不支持」，是**安装包残缺**。
+            // 这里只记日志（返回值仍按架构判定，免得把正常的架构筛选搅乱），
+            // 真正的报错在 run() 里，会给出「请重新下载完整安装包」的提示。
+            if (supported && !allPacks.contains(UNIVERSAL_PACK)) {
+                Logger.error(
+                    TAG,
+                    "内置运行环境 ${jre.jrePath} 缺少 $UNIVERSAL_PACK，只有：${allPacks.joinToString()}。" +
+                            "当前安装包不完整，解压会在 run() 阶段失败。"
+                )
+            }
+            supported
         }.getOrElse { e ->
             Logger.warning(TAG, "Failed to list assets directory", e)
             false
@@ -104,11 +119,40 @@ class UnpackJreTask(
 
     private fun getRuntimeByArch() = "bin-" + Architecture.archAsString(ZLApplication.DEVICE_ARCHITECTURE) + ".tar.xz"
 
+    /**
+     * 打开一个必需的 asset。
+     *
+     * 原来直接 `assetManager.open(...)`：文件一旦不在（残缺安装包、打包漏了、存储损坏），
+     * 抛出的是裸的 `FileNotFoundException: runtimes/jre-21/universal.tar.xz`，
+     * 冒到 `SplashActivity` 变成 `SplashException` → 整个应用带着崩溃页退出，
+     * 用户从中得不到任何可行动的信息。
+     *
+     * 这里把它转成一条说得清的 [IllegalStateException]，并把该目录**实际有哪些条目**
+     * 一起写进去 —— 崩溃页会原样显示，用户截图反馈就能直接定位是「哪一类残缺」。
+     */
+    private fun openAsset(fileName: String): InputStream {
+        val path = jre.jrePath + "/" + fileName
+        return try {
+            assetManager.open(path)
+        } catch (e: Exception) {
+            val packs = runCatching {
+                assetManager.list(jre.jrePath)?.joinToString().orEmpty()
+            }.getOrDefault("")
+            Logger.error(TAG, "无法读取内置运行环境资产 $path（目录内实际条目：$packs）", e)
+            throw IllegalStateException(
+                "内置 Java 运行环境文件缺失：$path\n" +
+                        "当前安装包可能不完整，请从官网重新下载安装包后覆盖安装。\n" +
+                        "该目录实际内容：[${packs.ifBlank { "空" }}]",
+                e
+            )
+        }
+    }
+
     override suspend fun run() {
         runCatching {
             RuntimesManager.installRuntimeBinPack(
-                universalFileInputStream = assetManager.open(jre.jrePath + "/universal.tar.xz"),
-                platformBinsInputStream = assetManager.open(jre.jrePath + "/" + getRuntimeByArch()),
+                universalFileInputStream = openAsset(UNIVERSAL_PACK),
+                platformBinsInputStream = openAsset(getRuntimeByArch()),
                 name = jre.jreName,
                 binPackVersion = launcherRuntimeVersion,
                 updateProgress = { textRes, textArgs ->
@@ -117,7 +161,7 @@ class UnpackJreTask(
             )
             RuntimesManager.postPrepare(jre.jreName)
         }.onFailure {
-            Logger.error("UnpackJre", "Internal JRE unpack failed", it)
+            Logger.error(TAG, "Internal JRE unpack failed", it)
         }.getOrThrow()
     }
 }

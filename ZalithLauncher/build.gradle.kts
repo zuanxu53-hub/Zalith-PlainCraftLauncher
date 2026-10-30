@@ -135,6 +135,21 @@ android {
         }
     }
 
+    androidResources {
+        // 内置 Java 运行环境的 `.tar.xz` 一律**不压缩**存储。
+        //
+        // 它们本来就是 xz 压缩包，aapt 再 deflate 一遍的收益是负的：
+        // 实测 jre-21/universal.tar.xz 18,974,588 → 18,980,378 字节，反而大了 5.8KB。
+        // 而代价很实在：压缩后的 asset 用 `AssetManager.open()` 读时，必须先 inflate
+        // 整条流才能拿到内容，大文件在部分设备上会直接失败 —— 崩溃页里那条
+        // `java.io.FileNotFoundException: runtimes/jre-21/universal.tar.xz` 就是它
+        // （APK 里明明有这个条目，`assetManager.list()` 也列得出来，但 open 拿不到）。
+        //
+        // 标成不压缩后，asset 以 STORED 存放，open() 直接按 ZIP 里的偏移读，
+        // 零解压、零内存峰值，也能被 zipalign 正常对齐。
+        noCompress += listOf("xz")
+    }
+
     compileOptions {
         // sora-editor language-textmate
         isCoreLibraryDesugaringEnabled = true
