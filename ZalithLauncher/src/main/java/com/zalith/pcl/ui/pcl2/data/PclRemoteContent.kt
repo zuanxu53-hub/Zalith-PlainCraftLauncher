@@ -45,10 +45,12 @@ object PclRemoteContent {
     private const val KEY_BASE_URL = "pcl_home_remote_url"
 
     /**
-     * 站点根地址（编译期默认值）。站点域名确定后填这里，例如 `https://xxx.example.com`。
+     * 站点根地址（编译期默认值）。
+     *
+     * 官网正式域名 = `zpcl.craftmc.cn`，证书有效、走 443，不需要带端口。
      * 留空表示还没配置 —— 这时只看 MMKV，两者都空则完全不联网、只用本地文案。
      */
-    private const val DEFAULT_BASE_URL = "https://z-pcl.cc.cd:28722"
+    private const val DEFAULT_BASE_URL = "https://zpcl.craftmc.cn"
 
     private const val TIMEOUT_MS = 8000
 
@@ -60,6 +62,16 @@ object PclRemoteContent {
     var lastError: String? = null
         private set
 
+    /**
+     * 上次失败是不是「重试也没用」的那种。
+     *
+     * `/api/random` 在库里没有审核通过的文案时返回 **404** —— 站点是活的、只是没内容，
+     * 再问三次也是同样的答案。断网 / 超时 / 5xx 才值得退避重试。
+     */
+    @Volatile
+    var lastErrorFinal: Boolean = false
+        private set
+
     /** 已缓存的上一条文案；没有就返回 null。 */
     fun cached(type: String): String? = cache[type]
 
@@ -67,10 +79,17 @@ object PclRemoteContent {
         cache[type] = text
     }
 
-    /** 站点根地址（去尾斜杠）。空 = 不联网。 */
+    /**
+     * 站点根地址（去尾斜杠）。空 = 不联网。
+     *
+     * 顺序是 **MMKV 覆盖值优先，编译期默认值兜底**。
+     * 原来写的是 `DEFAULT_BASE_URL.ifBlank { mmkv }` —— 默认值非空时它会直接短路，
+     * MMKV 那半边**永远走不到**，注释里承诺的「运行期可覆盖」其实是假的：
+     * 站点换域名只能重新发版。这里反过来，覆盖值才真正生效。
+     */
     fun baseUrl(): String {
-        val mmkv = runCatching { launcherMMKV().getString(KEY_BASE_URL, "").orEmpty() }.getOrDefault("")
-        return DEFAULT_BASE_URL.ifBlank { mmkv }.trimEnd('/')
+        val override = runCatching { launcherMMKV().getString(KEY_BASE_URL, "").orEmpty() }.getOrDefault("")
+        return override.ifBlank { DEFAULT_BASE_URL }.trim().trimEnd('/')
     }
 
     /**
@@ -81,8 +100,10 @@ object PclRemoteContent {
         val base = baseUrl()
         if (base.isEmpty()) {
             lastError = "未配置站点地址"
+            lastErrorFinal = true
             return null
         }
+        lastErrorFinal = false
         var conn: HttpURLConnection? = null
         return try {
             conn = URL("$base/api/random?type=$type").openConnection() as HttpURLConnection
@@ -93,12 +114,15 @@ object PclRemoteContent {
             val code = conn.responseCode
             if (code != HttpURLConnection.HTTP_OK) {
                 lastError = "HTTP $code"
+                // 4xx：地址错了 / 路由没了 / 库里没内容 —— 都不是等一下就能好的
+                lastErrorFinal = code in 400..499
                 return null
             }
             val body = conn.inputStream.bufferedReader().use { it.readText() }
             val text = JSONObject(body).optString("text")
             if (text.isBlank()) {
                 lastError = "返回内容为空"
+                lastErrorFinal = true
                 return null
             }
             lastError = null
@@ -145,6 +169,12 @@ fun rememberRemoteText(type: String, reloadToken: Int = 0): String {
                 LOG_TAG,
                 "拉取「$type」文案失败（第 ${attempt + 1}/$FETCH_ATTEMPTS 次）：${PclRemoteContent.lastError}"
             )
+            // 404 = 官网在线、只是库里还没审核通过的文案。再问两次答案一样，
+            // 直接收手，别让主页白等两次退避。
+            if (PclRemoteContent.lastErrorFinal) {
+                exhausted = true
+                return@LaunchedEffect
+            }
             if (attempt < FETCH_ATTEMPTS - 1) delay(500L * (attempt + 1))
         }
         exhausted = true
