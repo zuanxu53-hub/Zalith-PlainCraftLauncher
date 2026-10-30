@@ -206,18 +206,17 @@ class MainActivity : BaseAppCompatActivity() {
         // 每次打开启动器都自检一遍 Java 运行库：已有可用项直接返回，
         // 一个都没有时自动装（某些机型首次安装时解压被打断，Java 列表会是空的）
         lifecycleScope.launch {
-            val hadNone = RuntimeProvisioner.currentUsable().isEmpty()
             val report = RuntimeProvisioner.ensure(this@MainActivity, RuntimeProvisioner.Mode.REPAIR)
             val message = when {
                 report.installed.isNotEmpty() ->
                     "已自动安装内置 Java 运行库：${report.installed.joinToString("、")}"
 
-                hadNone && !report.hasUsable && report.failed.isNotEmpty() ->
+                !report.hasUsable && report.failed.isNotEmpty() ->
                     "Java 运行库不可用：${report.failed.first().second}"
 
                 // 内置包与本机架构对不上（例如只打包了 arm 的 APK 跑在 x86 设备上）：
                 // 不会自己好，必须告诉用户去哪里补
-                hadNone && !report.hasUsable && report.skipped.isNotEmpty() ->
+                !report.hasUsable && report.skipped.isNotEmpty() ->
                     "本机架构没有配套的内置 Java，请到「设置 → Java 运行库」导入 .xz 运行库。"
 
                 else -> null

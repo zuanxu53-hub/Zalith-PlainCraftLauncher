@@ -70,7 +70,6 @@ class Pcl2Activity : BaseAppCompatActivity() {
         // 结果「设置 → Java 运行库」里一个都没有，只能手动导入 .xz。
         // 这里在后台补一次：已经有可用运行库时立刻返回，一个都没有才自动装一个。
         lifecycleScope.launch {
-            val hadNone = RuntimeProvisioner.currentUsable().isEmpty()
             val report = RuntimeProvisioner.ensure(this@Pcl2Activity, RuntimeProvisioner.Mode.REPAIR)
             when {
                 report.installed.isNotEmpty() -> PclHintHost.push(
@@ -78,15 +77,15 @@ class Pcl2Activity : BaseAppCompatActivity() {
                     PclHintTheme.Blue,
                 )
 
-                hadNone && !report.hasUsable && report.failed.isNotEmpty() -> PclHintHost.push(
+                !report.hasUsable && report.failed.isNotEmpty() -> PclHintHost.push(
                     "Java 运行库不可用：${report.failed.first().second}",
                     PclHintTheme.Red,
                 )
 
-                // 没装、也没报错、还没跳过任何包 —— 说明内置包与本机架构对不上
+                // 没装、没报错、但确实跳过了包 —— 说明内置包与本机架构对不上
                 // （例如只打包了 arm 的 APK 跑在 x86 设备上）。
                 // 这种情况不会自己好了，必须明确告诉用户去哪里补，否则他只看到空列表。
-                hadNone && !report.hasUsable && report.skipped.isNotEmpty() -> PclHintHost.push(
+                !report.hasUsable && report.skipped.isNotEmpty() -> PclHintHost.push(
                     "本机架构没有配套的内置 Java。请到「设置 → Java 运行库」导入 .xz 运行库。",
                     PclHintTheme.Red,
                 )
