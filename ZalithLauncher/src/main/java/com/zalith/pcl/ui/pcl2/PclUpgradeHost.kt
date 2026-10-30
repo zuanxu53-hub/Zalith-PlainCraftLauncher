@@ -105,14 +105,15 @@ fun PclUpgradeHost() {
             // 按钮回调里已经把 operation 推到下一步（或清空）了，退出动画结束时的
             // `onLater` 就不能再写一次 —— 否则会把刚设置的 SelectApk 覆盖成 None，
             // 「立即更新」点了什么都不发生（与 PclConfirmDialog 那条注释同一个坑）。
-            var navigated by remember(data) { mutableStateOf(false) }
-
+            //
+            // 以前的判据是一个 `navigated` 标志，但它只在按钮里置 true、弹窗被复用时不会复位，
+            // 于是「按返回 / 稍后」有可能清不掉 operation，弹窗停在 exiting 状态不走。
+            // 现在直接比对象：**只有 operation 还停在本弹窗这一档时才清空**，语义天然正确。
             PclUpgradeDialog(
                 versionText = "当前版本 ${BuildConfig.VERSION_NAME}（${BuildConfig.VERSION_CODE}）" +
                     "  →  最新版本 ${data.version}（${data.code}）",
                 bodyText = pclMarkdownToPlain(body.markdown),
                 onDownload = {
-                    navigated = true
                     val files = data.files
                     when {
                         // 资产没取到（GitHub API 不通 / 还没上传）→ 退回网盘
@@ -132,12 +133,13 @@ fun PclUpgradeHost() {
                     }
                 },
                 onIgnore = {
-                    navigated = true
                     AllSettings.lastIgnoredVersion.save(data.code)
                     upgradeViewModel.operation = LauncherUpgradeOperation.None
                 },
                 onLater = {
-                    if (!navigated) upgradeViewModel.operation = LauncherUpgradeOperation.None
+                    if (upgradeViewModel.operation === operation) {
+                        upgradeViewModel.operation = LauncherUpgradeOperation.None
+                    }
                 },
                 cloudButtonText = cloudDrive?.name,
                 // 「立即更新」是直接装；网盘是给下不动 / 想留一份的人的备选入口，

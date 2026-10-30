@@ -19,10 +19,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.displayCutout
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.ui.Modifier
 import com.zalith.pcl.game.plugin.PluginLoader
 import com.zalith.pcl.game.renderer.Renderers
@@ -63,25 +60,22 @@ class Pcl2Activity : BaseAppCompatActivity() {
         // （新建时 `suspendSaveAccount` 会顺手 reload 一次，重启后就没人 reload 了）。
         refreshData()
         setContent {
-            PclMainScreen(
-                modifier = Modifier
-                    .fillMaxSize()
-                    // 只避让**挖孔**（横屏时一般在侧边），不再管状态栏 / 导航栏。
-                    //
-                    // 这里踩过两个坑，正好是同一个 modifier 的两端：
-                    //   · `WindowInsets.systemBars` —— 手势导航下手指碰到屏幕底部，
-                    //     那条小白条会临时冒出来，insets 随之在「有 / 无」之间跳，
-                    //     整页内容跟着上下抽动重排，表现为「点一下小白条画面往下飘 + 闪一下」。
-                    //   · `systemBarsIgnoringVisibility` —— 治好了抽动，但它的语义是
-                    //     「**不管系统栏可不可见，都按它的尺寸算**」。而主题里
-                    //     `android:windowFullscreen=true` 早就把系统栏隐藏了，于是这条
-                    //     padding 永远存在：内容区上下各被削掉一条，那块区域没人画背景，
-                    //     露出 Activity 的窗口底色 —— 浅色主题下是浅灰、**深色主题下就是黑边**，
-                    //     看起来就是「界面上下没铺满」。
-                    //
-                    // 全屏窗口本来就不需要给系统栏让位，真正该躲的只有挖孔。
-                    .windowInsetsPadding(WindowInsets.displayCutout),
-            )
+            // **强制全屏：一点内边距都不留，刘海也不避。**
+            //
+            // 配合主题里的两条：`android:windowFullscreen=true`（系统栏已隐藏）+
+            // `android:windowLayoutInDisplayCutoutMode=shortEdges`（内容允许画进挖孔区），
+            // 界面就是物理屏幕的全尺寸，四边不留任何缝。
+            //
+            // 这个 modifier 上踩过的三个坑，正好是同一条 insets 的三档：
+            //   · `WindowInsets.systemBars` —— 手势导航下手指碰到屏幕底部，
+            //     那条小白条会临时冒出来，insets 随之在「有 / 无」之间跳，
+            //     整页内容跟着上下抽动重排，表现为「点一下小白条画面往下飘 + 闪一下」。
+            //   · `systemBarsIgnoringVisibility` —— 治好了抽动，但语义是
+            //     「**不管系统栏可不可见，都按它的尺寸算**」，于是留下一条永远存在的
+            //     padding，那块区域没人画背景 → 露出窗口底色 → 上下两条黑边。
+            //   · `displayCutout` —— 黑边没了，但刘海那一侧仍被让开一条。
+            // 用户要的是「我管你刘海屏什么的全部强制全屏」，所以三档全不要。
+            PclMainScreen(modifier = Modifier.fillMaxSize())
         }
     }
 

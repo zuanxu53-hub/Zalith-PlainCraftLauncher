@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <style name="AppTheme.ZalithLauncher" parent="Theme.Material3.Light.NoActionBar">
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowContentOverlay">@null</item>
+        <!-- 强制全屏：允许内容画进挖孔 / 刘海区域（API 28+，低版本自动忽略） -->
+        <item name="android:windowLayoutInDisplayCutoutMode" tools:targetApi="28">shortEdges</item>
     </style>
     <style name="AppTheme.SplashScreen" parent="@style/Theme.SplashScreen">
         <item name="postSplashScreenTheme">@style/AppTheme.ZalithLauncher</item>
@@ -12,5 +14,7 @@
         <item name="windowNoTitle">true</item>
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowContentOverlay">@null</item>
+        <!-- 强制全屏：允许内容画进挖孔 / 刘海区域（API 28+，低版本自动忽略） -->
+        <item name="android:windowLayoutInDisplayCutoutMode" tools:targetApi="28">shortEdges</item>
     </style>
 </resources>

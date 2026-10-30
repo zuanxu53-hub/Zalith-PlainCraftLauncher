@@ -201,14 +201,28 @@ internal fun PclDialogHost(
  * @param content 收到一个 `requestClose` 回调 —— 内容里**所有**关闭路径都要用它。
  * @param dismissOnOutsideClick 点外部 / 按返回键是否允许关闭。默认 true；
  *        任务进行中的弹窗（如 `PclTitledTaskDialog`）要传 false，以免误触关掉。
+ * @param dismissHandler 返回键 / 点外部的**接管**动作。非 null 时代替默认的 `requestClose`
+ *        （也就是说**不播退出动画**，由调用方自己改状态把弹窗拿走）。下载进度这类
+ *        「状态驱动」的弹窗必须用它，原因见函数体内 `closed` 那条注释。
  */
 @Composable
 internal fun PclDialogContainer(
     onDismiss: () -> Unit,
     dismissOnOutsideClick: Boolean = true,
+    dismissHandler: (() -> Unit)? = null,
     content: @Composable (requestClose: () -> Unit) -> Unit,
 ) {
     var exiting by remember { mutableStateOf(false) }
+    /**
+     * 退出动画播完后**无条件**把窗口从组合里摘掉。
+     *
+     * 【血泪】以前只靠 `onDismiss` 让调用方清状态间接移除 Dialog，一旦调用方传了空 lambda
+     * （或状态没复位），Dialog 就永远留在组合里：`alpha` 已经被退出动画淡到 0，
+     * 窗口却是实打实的、可获得焦点的 —— 于是出现一个**看不见但把整屏触摸全吃掉**的窗口。
+     * 表现就是用户报的「按下返回后点什么都没反应」，界面看着完全正常。
+     * 现在只要退出动画跑完，我们自己就把窗口摘掉，调用方那边再怎么漏都不会再卡。
+     */
+    var closed by remember { mutableStateOf(false) }
     val requestClose: () -> Unit = { if (!exiting) exiting = true }
     // 【为什么必须显式 provide】和 `PclComboBoxPopup` 是同一类坑（见 PclControls.kt:1851）：
     // `Dialog` 的内容挂在**另一个窗口**的子 composition 里，它拿到的 `LocalDensity`
@@ -219,13 +233,25 @@ internal fun PclDialogContainer(
     // 看起来就是「字大了一圈、按钮又粗又方」。
     // 把调用点的 density 带进去，弹窗里的每一个 dp 都与整页 UI 同尺。
     val density = LocalDensity.current
-    Dialog(
-        onDismissRequest = { if (dismissOnOutsideClick) requestClose() },
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-    ) {
-        CompositionLocalProvider(LocalDensity provides density) {
-            PclDialogHost(exiting = exiting, onExitFinished = onDismiss) {
-                content(requestClose)
+    if (!closed) {
+        Dialog(
+            onDismissRequest = {
+                if (dismissOnOutsideClick) {
+                    if (dismissHandler != null) dismissHandler() else requestClose()
+                }
+            },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            CompositionLocalProvider(LocalDensity provides density) {
+                PclDialogHost(
+                    exiting = exiting,
+                    onExitFinished = {
+                        closed = true
+                        onDismiss()
+                    },
+                ) {
+                    content(requestClose)
+                }
             }
         }
     }
@@ -1067,14 +1093,20 @@ fun PclUpgradeDownloadDialog(
     onCancel: () -> Unit,
 ) {
     val p = pclPalette
-    PclDialogContainer(onDismiss = {}) { requestClose ->
+    PclDialogContainer(
+        // 这个弹窗完全由 `PclLauncherUpdate.state` 驱动：状态一变回 Idle，
+        // 宿主那边就不渲染它了，所以这里没有需要清理的调用方状态。
+        onDismiss = {},
+        // 按返回键 = 取消下载。**只改状态、不走退出动画**。
+        // 以前走的是默认的 requestClose()：退出动画把 alpha 淡到 0，而 onDismiss 是空 lambda，
+        // 没人把窗口摘掉 —— 剩下一个透明却吞掉全部触摸的窗口，就是「按返回后点什么都没反应」。
+        dismissHandler = { onCancel() },
+    ) { _ ->
         PclMsgFrame(
             title = title,
             buttons = {
-                PclMsgButton(text = "取消下载", onClick = {
-                    onCancel()
-                    requestClose()
-                })
+                // 同理：直接取消，不 requestClose。取消导致 state 变 Idle，弹窗自然消失。
+                PclMsgButton(text = "取消下载", onClick = onCancel)
             },
         ) {
             Column(

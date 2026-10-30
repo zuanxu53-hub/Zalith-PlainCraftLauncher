@@ -21,12 +21,25 @@ package com.zalith.pcl.game.download.engine
 /**
  * 单文件下载作业：把 [DownloadRequest] 交给 [Fetcher] 按候选源顺序下载，
  * 期间把落盘字节计入 [stats]。
+ *
+ * 大文件先尝试 [SegmentedDownloader] 的**分段并行**（多连接同时拉，能明显拉高单文件速度）；
+ * 只要有一点条件不满足或中途出错，就原样回退到单连接 [Fetcher]，语义完全不变。
  */
 class FileDownloader(
     private val request: DownloadRequest,
     private val stats: DownloadStats
 ) {
     suspend fun download() {
+        if (SegmentedDownloader.downloadOrNull(
+                urls = request.urls,
+                targetFile = request.targetFile,
+                sha1 = request.sha1,
+                expectedSize = request.expectedSize,
+                onBytes = stats::addBytes,
+            )
+        ) {
+            return
+        }
         Fetcher.downloadFile(
             urls = request.urls,
             targetFile = request.targetFile,
