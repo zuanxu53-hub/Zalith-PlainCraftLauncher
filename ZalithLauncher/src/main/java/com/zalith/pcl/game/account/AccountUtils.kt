@@ -119,7 +119,9 @@ fun microsoftLogin(
             task.updateProgress(-1f)
             task.updateMessage(androidText(R.string.account_microsoft_fetch_device_code))
             val deviceCode = fetchDeviceCodeResponse(coroutineContext)
-            Logger.debug(TAG, "Device code received, verification url: ${deviceCode.verificationUrl}, expires in ${deviceCode.expiresIn}s")
+            // 用 info 而不是 debug：debug 可能被日志级别过滤掉，而登录失败时
+            // 「到底打开了哪个验证地址」往往是唯一能反推问题现场的证据。
+            Logger.info(TAG, "Device code received, verification url: ${deviceCode.verificationUrl}, user code: ${deviceCode.userCode}, expires in ${deviceCode.expiresIn}s")
             copyText(COPY_LABEL_DEVICE_CODE, deviceCode.userCode, context, false)
             showToast(
                 androidText(R.string.account_microsoft_coped_device_code, deviceCode.userCode),

@@ -19,9 +19,11 @@
 package com.zalith.pcl.ui.pcl2.components
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
+import android.widget.Toast
 import android.webkit.CookieManager
 import android.webkit.WebSettings
 import android.webkit.WebResourceRequest
@@ -54,6 +56,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -82,9 +85,12 @@ fun PclWebOverlay(
     modifier: Modifier = Modifier,
 ) {
     val p = pclPalette
+    val context = LocalContext.current
     var webView by remember(page) { mutableStateOf<WebView?>(null) }
     var currentUrl by remember(page) { mutableStateOf(page.url) }
     var loading by remember(page) { mutableStateOf(true) }
+    // 内置浏览器把微软登录页跑挂时只交接一次，避免系统浏览器和内置页互相拉起
+    var handedOffToBrowser by remember(page) { mutableStateOf(false) }
 
     // 有网页时返回键先交给网页历史，退无可退才关掉这一层 ——
     // 与 Zalith 原生界面「退出网页页 = 退出登录」的语义一致。
@@ -130,6 +136,14 @@ fun PclWebOverlay(
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(12.dp))
+                // 网页在 WebView 里跑不动时（微软登录页尤其常见）一键交给系统浏览器
+                PclTextButton(text = "浏览器打开") {
+                    val url = currentUrl.ifBlank { page.url }
+                    if (!openInSystemBrowser(context, url)) {
+                        Toast.makeText(context, "没有可用的浏览器", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                Spacer(Modifier.width(14.dp))
                 PclTextButton(text = "刷新") { webView?.reload() }
                 Spacer(Modifier.width(14.dp))
                 PclTextButton(text = "关闭") { onClose() }
@@ -161,6 +175,22 @@ fun PclWebOverlay(
                                 super.onPageFinished(view, url)
                                 url?.let { currentUrl = it }
                                 loading = false
+
+                                // 微软的设备码验证页在 WebView 里偶发「接力丢参数」：
+                                // 页面会跳到 login.live.com/oauth20_authorize.srf?res=error&c=…&uaid=…，
+                                // 内容是「我们无法完成你的请求 / invalid_request … client_id」。
+                                // 这一页靠 JS + 表单二次提交，WebView 里出问题基本没法自己恢复，
+                                // 系统浏览器没有这个毛病 —— 直接把入口页再交给它，用户还能接着登。
+                                if (!handedOffToBrowser && url != null && isMicrosoftLoginFailurePage(url)) {
+                                    handedOffToBrowser = true
+                                    val opened = openInSystemBrowser(context, page.url)
+                                    Toast.makeText(
+                                        context,
+                                        if (opened) "内置浏览器登录失败，已改用系统浏览器打开验证页"
+                                        else "内置浏览器登录失败，请点右上角「浏览器打开」重试",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
                             }
                         }
                         loadUrl(page.url)
@@ -336,6 +366,34 @@ fun PclInlineHtml(
         }
     }
 }
+
+/**
+ * 把链接交给系统浏览器（Chrome / Edge / 厂商自带）。
+ *
+ * @return 是否真的拉起了某个浏览器（没有浏览器时 `startActivity` 会抛
+ *         `ActivityNotFoundException`，这里吞掉并返回 false）
+ */
+private fun openInSystemBrowser(context: Context, url: String): Boolean {
+    if (url.isBlank()) return false
+    return runCatching {
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+        true
+    }.getOrDefault(false)
+}
+
+/**
+ * 是不是微软登录的「失败页」。
+ *
+ * `login.live.com/oauth20_authorize.srf` 少参数时会重定向到自己并带上
+ * `res=error&c=<错误码>&uaid=<会话>`，页面内容是
+ * 「我们无法完成你的请求 / invalid_request: The provided request must include a 'client_id'」。
+ * 正常登录流程根本不会出现这一页，所以见到就说明这一步已经废了。
+ */
+private fun isMicrosoftLoginFailurePage(url: String): Boolean =
+    url.contains("login.live.com/oauth20_authorize.srf") && url.contains("res=error")
 
 /**
  * 启动器内置浏览器的统一设置。
