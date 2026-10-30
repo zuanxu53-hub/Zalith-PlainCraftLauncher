@@ -39,6 +39,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -50,9 +51,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import com.zalith.pcl.game.download.assets.favorites.FavoriteProjectsRepository
+import com.zalith.pcl.game.download.assets.platform.Platform
 import com.zalith.pcl.game.download.assets.platform.PlatformClasses
 import com.zalith.pcl.game.download.assets.platform.PlatformDependencyType
 import com.zalith.pcl.game.download.assets.platform.PlatformDisplayLabel
+import com.zalith.pcl.game.download.assets.platform.PlatformFilterCode
+import com.zalith.pcl.game.download.assets.platform.PlatformProject
 import com.zalith.pcl.game.download.assets.platform.PlatformSearchData
 import com.zalith.pcl.game.download.assets.platform.PlatformVersion
 import com.zalith.pcl.game.version.installed.Version
@@ -68,6 +72,7 @@ import com.zalith.pcl.game.download.assets.utils.getTranslations
 import com.zalith.pcl.game.download.modpack.install.ModpackImporter
 import com.zalith.pcl.ui.pcl2.PclContent
 import com.zalith.pcl.ui.pcl2.PclHintHost
+import com.zalith.pcl.ui.pcl2.LocalPclNav
 import com.zalith.pcl.ui.pcl2.PclStrings
 import com.zalith.pcl.ui.pcl2.PclSubPage
 import com.zalith.pcl.ui.pcl2.PclTitledTaskDialog
@@ -109,9 +114,24 @@ fun pclResourceDetailPage(
     data: PlatformSearchData,
     mcmod: ModTranslations.McMod?,
     classes: PlatformClasses,
+    /**
+     * 进来后要直接定位到的文件版本 Id。
+     *
+     * 从「必要前置资源」点进来时就带上这个 —— 例如在 Iris 的页面点前置 Sodium，
+     * 要打开的是 Sodium 的项目页，但**当前选中的版本**应该是 Iris 这个文件所依赖的那一版
+     * （Modrinth 的依赖里带 `version_id`），而不是 Sodium 的最新版。
+     */
+    focusVersionId: String? = null,
 ): PclSubPage = PclSubPage(
     title = "资源下载 - ${data.platformTitle()}",
-    content = { PclResourceDetail(data = data, mcmod = mcmod, classes = classes) },
+    content = {
+        PclResourceDetail(
+            data = data,
+            mcmod = mcmod,
+            classes = classes,
+            focusVersionId = focusVersionId,
+        )
+    },
 )
 
 @Composable
@@ -119,6 +139,7 @@ private fun PclResourceDetail(
     data: PlatformSearchData,
     mcmod: ModTranslations.McMod?,
     classes: PlatformClasses,
+    focusVersionId: String? = null,
 ) {
     val p = pclPalette
     val context = LocalContext.current
@@ -170,6 +191,23 @@ private fun PclResourceDetail(
 
     val installedVersion = runtime.currentVersion.value?.getVersionInfo()?.minecraftVersion
 
+    /**
+     * 从「必要前置资源」点进来时要定位的那个文件（`focusVersionId` 对应的条目）。
+     *
+     * 文件列表是异步拉的，所以这里跟 [files] 一起算 —— 列表回来之前是 null，回来之后才有着落。
+     */
+    val focusFile = remember(files, focusVersionId) {
+        focusVersionId?.takeIf { it.isNotBlank() }
+            ?.let { id -> files.firstOrNull { it.platformId() == id } }
+    }
+
+    // 定位成功给一句提示：卡片被顶到最前、条目还挂着「适配版本」，但用户刚跳进来未必反应过来
+    LaunchedEffect(focusFile) {
+        focusFile?.let {
+            PclHintHost.push("已定位到适配版本：${it.platformDisplayName()}", PclHintTheme.Green)
+        }
+    }
+
     // 版本筛选项：先列小版本，太多就折叠成大版本（PCL 的 GroupedDrop 思路）
     val versionChoices = remember(files) {
         val all = files.flatMap { it.platformGameVersion().toList() }.distinct()
@@ -192,7 +230,7 @@ private fun PclResourceDetail(
     }
 
     // 按游戏版本归组；与筛选/当前已装版本匹配的卡片默认展开
-    val grouped = remember(visibleFiles, versionFilter, installedVersion) {
+    val grouped = remember(visibleFiles, versionFilter, installedVersion, focusFile) {
         val map = LinkedHashMap<String, MutableList<PlatformVersion>>()
         visibleFiles.forEach { file ->
             val versions = file.platformGameVersion().toList().ifEmpty { listOf("未知版本") }
@@ -201,9 +239,16 @@ private fun PclResourceDetail(
             }.ifEmpty { versions }
             keys.forEach { key -> map.getOrPut(key) { mutableListOf() }.add(file) }
         }
-        map.entries
+        val entries = map.entries
             .sortedWith { a, b -> PclVersionDescComparator.compare(a.key, b.key) }
             .map { it.key to it.value }
+        if (focusFile == null) {
+            entries
+        } else {
+            // 定位目标所在的那张卡片顶到最前：列表按版本号降序排，目标很可能排在十几张开外，
+            // 不挪上来用户还得自己翻。
+            entries.sortedBy { (_, list) -> if (list.any { it === focusFile }) 0 else 1 }
+        }
     }
 
     /** 真正提交下载：把资源装进 [targets] 里的每个版本。 */
@@ -450,6 +495,8 @@ private fun PclResourceDetail(
                 grouped.forEachIndexed { index, (version, list) ->
                     val expand = (installedVersion != null && version.equals(installedVersion, true)) ||
                         (versionFilter != null && (version == versionFilter || version.pclBigVersion() == versionFilter)) ||
+                        // 从「前置资源」跳进来定位的那个文件：卡片必须默认展开，否则目标根本看不见
+                        (focusFile != null && list.any { it === focusFile }) ||
                         grouped.size == 1 ||
                         index == 0
                     PclCard(
@@ -468,7 +515,9 @@ private fun PclResourceDetail(
                         list.forEach { file ->
                             PclResourceFileRow(
                                 file = file,
+                                classes = classes,
                                 installLabel = if (classes == PlatformClasses.MOD_PACK) "安装" else "下载",
+                                highlighted = focusFile != null && file === focusFile,
                                 onInstall = { download(file) },
                             )
                         }
@@ -607,7 +656,9 @@ private fun PclFilterChips(
 @Composable
 private fun PclResourceFileRow(
     file: PlatformVersion,
+    classes: PlatformClasses,
     installLabel: String,
+    highlighted: Boolean = false,
     onInstall: () -> Unit,
 ) {
     val loaders = file.platformLoaders().joinToString(" / ") { it.getDisplayName() }
@@ -623,21 +674,142 @@ private fun PclResourceFileRow(
         file.platformFileName().takeIf { it.isNotBlank() },
     ).joinToString(" · ")
 
-    PclListItem(
-        title = file.platformDisplayName(),
-        info = info,
-        type = PclListItemType.Clickable,
-        height = 42.dp,
-        modifier = Modifier.fillMaxWidth(),
-        buttons = listOf(
-            PclListItemButton(
-                logo = PclIcons.resourceDownload,
-                tooltip = installLabel,
-                onClick = onInstall,
+    Column(modifier = Modifier.fillMaxWidth()) {
+        PclListItem(
+            title = file.platformDisplayName(),
+            info = info,
+            type = PclListItemType.Clickable,
+            height = 42.dp,
+            modifier = Modifier.fillMaxWidth(),
+            // 从「前置资源」跳进来时，被定位的那一版挂个小尾巴，一眼能认出「就是它」
+            titleSuffix = "适配版本".takeIf { highlighted },
+            buttons = listOf(
+                PclListItemButton(
+                    logo = PclIcons.resourceDownload,
+                    tooltip = installLabel,
+                    onClick = onInstall,
+                ),
             ),
-        ),
-        onClick = onInstall,
-    )
+            onClick = onInstall,
+        )
+        // 展开卡片后，紧跟着这个文件把它的必装前置列出来：
+        // 以前只有点下载时弹一次提示，关掉就没了；《Iris 要 Sodium》这种关系用户想回头看就看不到。
+        PclRequiredDependencyBlock(file = file, classes = classes)
+    }
+}
+
+/**
+ * 「必要前置资源（N）」—— 某个文件所依赖的必装前置清单。
+ *
+ * 条目直接可点：点进去打开的是那个前置**项目**的详情页，并且带上它适配的那个版本 Id
+ * （[PlatformVersion.PlatformDependency.versionId]），进去后会自动停在对应版本上。
+ * 这正是玩家最容易卡住的地方 —— 从 Sodium 页面只能看到一串最新版，
+ * 不知道 Iris 到底要哪一版。
+ */
+@Composable
+private fun PclRequiredDependencyBlock(
+    file: PlatformVersion,
+    classes: PlatformClasses,
+) {
+    val p = pclPalette
+    val nav = LocalPclNav.current
+    val deps = remember(file) {
+        file.platformDependencies().filter {
+            it.type == PlatformDependencyType.REQUIRED && it.projectId != null
+        }
+    }
+    if (deps.isEmpty()) return
+
+    // projectId -> 项目详情。依赖数据里只有 Id，名称/图标/下载量都得再查一次；
+    // 查到一个就更新一次，不让整块等着最后一个请求回来。
+    var projects by remember(file) { mutableStateOf<Map<String, PlatformProject>>(emptyMap()) }
+    LaunchedEffect(file) {
+        val loaded = LinkedHashMap<String, PlatformProject>()
+        projects = loaded
+        deps.forEach { dep ->
+            val pid = dep.projectId ?: return@forEach
+            runCatching { getProjectByVersion(pid, dep.platform, printLog = false) }
+                .getOrNull()
+                ?.let {
+                    loaded[pid] = it
+                    projects = LinkedHashMap(loaded)
+                }
+        }
+    }
+
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(start = 8.dp, top = 4.dp, bottom = 6.dp),
+    ) {
+        PclText(text = "必要前置资源（${deps.size}）", bold = true)
+        Spacer(Modifier.height(4.dp))
+        deps.forEach { dep ->
+            val pid = dep.projectId.orEmpty()
+            val project = projects[pid]
+            key(pid) {
+                PclResourceItem(
+                    // 还没查到就先用项目 Id 顶着，别让条目空着或者消失
+                    title = project?.platformTitle()?.takeIf { it.isNotBlank() } ?: "项目 $pid",
+                    description = project?.platformSummary().orEmpty(),
+                    iconUrl = project?.platformIconUrl(),
+                    iconFallback = pclResourceIconFor(classes),
+                    downloadText = project?.let { formatCount(it.platformDownloadCount()) },
+                    sourceText = dep.platform.displayName,
+                    onClick = {
+                        nav.push(
+                            pclResourceDetailPage(
+                                data = PclProjectRefData(
+                                    platformValue = dep.platform,
+                                    projectId = pid,
+                                    project = project,
+                                ),
+                                mcmod = null,
+                                classes = classes,
+                                // 依赖里指定了具体版本就定位过去；只说了「需要这个项目」就正常打开
+                                focusVersionId = dep.versionId,
+                            )
+                        )
+                    },
+                )
+                Spacer(Modifier.height(2.dp))
+            }
+        }
+    }
+}
+
+/**
+ * 把 [PlatformProject]（项目详情）当成 [PlatformSearchData]（搜索结果）交给详情页。
+ *
+ * 详情页要的是搜索结果的形状，而跳转时手上只有项目详情 —— 两边字段几乎一一对应，
+ * 差在 [PlatformProject.platformSummary] 是可空的、[PlatformSearchData.platformDescription] 不是。
+ * [project] 为空（详情还没拉到、或者拉失败）时仍然允许跳转：进去之后详情页自己会再请求一次。
+ */
+private class PclProjectRefData(
+    private val platformValue: Platform,
+    private val projectId: String,
+    private val project: PlatformProject?,
+) : PlatformSearchData {
+    override fun platform(): Platform = project?.platform() ?: platformValue
+
+    override fun platformId(): String =
+        project?.platformId()?.takeIf { it.isNotBlank() } ?: projectId
+
+    override fun platformTitle(): String =
+        project?.platformTitle()?.takeIf { it.isNotBlank() } ?: projectId
+
+    override fun platformDescription(): String = project?.platformSummary().orEmpty()
+
+    override fun platformAuthor(): String = project?.platformAuthor().orEmpty()
+
+    override fun platformIconUrl(): String? = project?.platformIconUrl()
+
+    override fun platformDownloadCount(): Long = project?.platformDownloadCount() ?: 0L
+
+    override fun platformFollows(): Long? = project?.platformFollows()
+
+    override fun platformModLoaders(): List<PlatformDisplayLabel>? = project?.platformModLoaders()
+
+    override fun platformCategories(classes: PlatformClasses): List<PlatformFilterCode>? =
+        project?.platformCategories(classes)
 }
 
 /**
