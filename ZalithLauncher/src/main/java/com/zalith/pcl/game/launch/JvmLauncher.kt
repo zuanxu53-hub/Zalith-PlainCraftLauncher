@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.IntSize
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.zalith.pcl.R
 import com.zalith.pcl.bridge.LoggerBridge
+import com.zalith.pcl.components.jre.RuntimeProvisioner
 import com.zalith.pcl.game.multirt.Runtime
 import com.zalith.pcl.game.multirt.RuntimesManager
 import com.zalith.pcl.game.path.GamePathManager
@@ -36,6 +37,8 @@ import com.zalith.pcl.ui.theme.showThemed
 import com.zalith.pcl.utils.logging.Logger
 import com.zalith.pcl.utils.string.getMessageOrToString
 import com.zalith.pcl.utils.string.splitPreservingQuotes
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -64,6 +67,12 @@ open class JvmLauncher(
     override suspend fun launch(screenSize: IntSize): Int {
         generateLauncherProfiles(jvmLaunchInfo.userHome)
         initLwjglComponent(context, 0)
+        // 直接跑安装器 / 工具 JAR 之前也确认一次 Java：没有就自动装内置的。
+        // 这条路径走不到 GameInstaller 的任务流（例如从文件管理器导入整合包），
+        // 原来缺 Java 时会一路走到原生层回一个 -1，什么原因都看不到。
+        withContext(Dispatchers.IO) {
+            RuntimeProvisioner.ensureFor(context, 0, "run jar")
+        }
         val (runtime, argList) = getStartupNeeded(screenSize)
 
         this.runtime = runtime

@@ -20,6 +20,7 @@ package com.zalith.pcl.game.download.jvm_server
 
 import android.content.Intent
 import com.zalith.pcl.components.jre.Jre
+import com.zalith.pcl.components.jre.RuntimeProvisioner
 import com.zalith.pcl.context.GlobalContext
 import com.zalith.pcl.coroutine.TaskLogOutput
 import com.zalith.pcl.game.multirt.RuntimesManager
@@ -85,6 +86,12 @@ suspend fun runJvmRetryRuntimes(
 
     waitForJvmExclusiveProcessesStopped(logId)
 
+    // 装加载器 / 跑安装器 JAR 之前，再确认一次 Java 到底在不在：
+    // 用户可能换了机型、清过数据，或者上一次解压被中断 —— 这里会当场补装内置运行库，
+    // 而不是等重试链一路跑完再抛「没有可用的 Java 运行库」。
+    // 有能用的运行库时只是几十次 stat，几乎不花时间。
+    val readiness = RuntimeProvisioner.ensureFor(GlobalContext, jre.majorVersion, "install jvm:$logId")
+
     //先确认这个 Java 运行库是不是真的可用（目录存在、release 能解析出 java 版本与架构）。
     //内部运行库没解压好时，原来会照常起 :jvm 服务、然后在启动 JVM 的一瞬抛异常，
     //用户只能看到一句「JVM 退出码 1」；这里提前验一下：能低成本修就修（例如补个缺失的 release），
@@ -110,11 +117,17 @@ suspend fun runJvmRetryRuntimes(
             logOutput = logOutput
         ) {
             IOException(
-                "没有可用的 Java 运行库：\n" +
-                        attempted.joinToString("\n") { jre ->
-                            "· ${jre.jreName} —— ${RuntimesManager.describeRuntimeProblem(jre.jreName)}"
-                        } +
-                        "\n请重启启动器让它重新解压运行库，或在设置中检查 Java 运行库。"
+                buildString {
+                    append("没有可用的 Java 运行库：\n")
+                    attempted.forEach { tried ->
+                        append("· ${tried.jreName} —— ${RuntimesManager.describeRuntimeProblem(tried.jreName)}\n")
+                    }
+                    // 自动修复也失败时，把「为什么装不上」一并写出来（架构不对 / 空间不足 / 资产读不到）
+                    if (!readiness.ok) {
+                        append("自动修复结果：${readiness.problem}\n")
+                    }
+                    append("请到「设置 → Java 运行库」检查，或导入 .xz 格式的运行库。")
+                }
             )
         }
         return@withContext

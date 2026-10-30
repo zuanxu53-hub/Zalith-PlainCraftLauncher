@@ -21,6 +21,7 @@ package com.zalith.pcl.game.download.game
 import android.content.Context
 import android.content.Intent
 import com.zalith.pcl.R
+import com.zalith.pcl.components.jre.RuntimeProvisioner
 import com.zalith.pcl.context.GlobalContext
 import com.zalith.pcl.coroutine.Task
 import com.zalith.pcl.coroutine.TaskFlowExecutor
@@ -278,6 +279,17 @@ class GameInstaller(
 
         listOf(
             buildPhase {
+                // 安装游戏前先确认 Java：一个能用的都没有就自动解压内置运行库。
+                // 放在最前面而不是等加载器安装那一步，是为了「缺 Java」能在开始下载
+                // 几百 MB 之前就被补上，而不是装到一半才失败。
+                addTask(
+                    id = "Install.EnsureJava",
+                    title = androidText(R.string.download_install_check_java),
+                    icon = R.drawable.ic_java,
+                ) {
+                    RuntimeProvisioner.ensureFor(context, 0, "install game")
+                }
+
                 //开始之前，应该先清理一次临时游戏目录，否则可能会影响安装结果
                 addTask(
                     id = "Download.Game.ClearTemp",
@@ -371,6 +383,15 @@ class GameInstaller(
 
         listOf(
             buildPhase {
+                // 重置版本同样要装加载器，先确认 Java（逻辑同 installGame）
+                addTask(
+                    id = "Install.EnsureJava",
+                    title = androidText(R.string.download_install_check_java),
+                    icon = R.drawable.ic_java,
+                ) {
+                    RuntimeProvisioner.ensureFor(context, 0, "modify version")
+                }
+
                 //开始之前，应该先清理一次临时游戏目录，否则可能会影响安装结果
                 addTask(
                     id = "ModifyVersion.ClearTemp",

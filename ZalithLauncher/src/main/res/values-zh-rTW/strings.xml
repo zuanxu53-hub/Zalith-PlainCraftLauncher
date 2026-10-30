@@ -223,6 +223,7 @@
     <string name="download_install_error_download_failed">部分檔案下載失敗，可能是網路問題導致。</string>
     <string name="download_install_success_title">安裝成功</string>
     <string name="download_install_success_message">您的遊戲已順利完成安裝！</string>
+    <string name="download_install_check_java">檢查 Java 執行環境</string>
     <string name="download_install_clear_temp">清理快取檔案</string>
     <string name="download_install_input_version_name">等待使用者輸入版本名稱</string>
     <string name="download_install_input_version_name_title">輸入預先安裝的版本名稱</string>

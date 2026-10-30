@@ -241,6 +241,7 @@
     <string name="download_install_error_download_failed">一些文件下载失败，可能是网络问题导致的。</string>
     <string name="download_install_success_title">安装成功</string>
     <string name="download_install_success_message">您的游戏已顺利的完成了安装！</string>
+    <string name="download_install_check_java">检查 Java 运行库</string>
     <string name="download_install_clear_temp">清理缓存文件</string>
     <string name="download_install_input_version_name">等待用户输入版本名称</string>
     <string name="download_install_input_version_name_title">输入预安装的版本名称</string>

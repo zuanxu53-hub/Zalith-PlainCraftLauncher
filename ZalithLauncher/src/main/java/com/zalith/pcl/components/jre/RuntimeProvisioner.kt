@@ -75,6 +75,39 @@ object RuntimeProvisioner {
     }
 
     /**
+     * 「装完了能不能真的跑起来」的结论。
+     *
+     * [Report] 只说「有没有可用运行库」，但启动游戏还要看**版本够不够**：
+     * 只有 Java 8 却要跑要求 Java 21 的版本时，`hasUsable` 是 true，游戏照样起不来。
+     */
+    data class Readiness(
+        val report: Report,
+        /** 装完之后本机可用的最高 Java 版本（0 = 一个都没有） */
+        val javaVersion: Int,
+        /** 本次要求的 Java 版本（0 = 只要有一个能用的就行） */
+        val required: Int,
+    ) {
+        val ok: Boolean get() = javaVersion >= required && javaVersion > 0
+
+        /** 不可用时给用户看的准确原因（直接进提示框 / 安装失败信息） */
+        val problem: String
+            get() = when {
+                report.usable.isEmpty() && report.failed.isNotEmpty() ->
+                    "内置 Java 运行库安装失败：" +
+                            report.failed.joinToString("；") { "${it.first} —— ${it.second}" }
+
+                report.usable.isEmpty() && report.skipped.isNotEmpty() ->
+                    "本机架构没有配套的内置 Java（${report.skipped.joinToString()}），" +
+                            "请到「设置 → Java 运行库」导入 .xz 格式的运行库"
+
+                report.usable.isEmpty() -> "没有可用的 Java 运行库"
+
+                else -> "这个版本需要 Java $required，本机最高只有 Java $javaVersion" +
+                        "（${report.usable.joinToString()}）。请到「设置 → Java 运行库」导入更高版本的运行库"
+            }
+    }
+
+    /**
      * 安装互斥。
      *
      * 解压页（[com.zalith.pcl.ui.activities.SplashActivity]）与主界面的兜底检测可能同时被触发，
@@ -88,9 +121,13 @@ object RuntimeProvisioner {
      *
      * 必须在主线程之外调用：会读 assets、解压 tar.xz、扫描运行库目录。
      */
-    suspend fun ensure(context: Context, mode: Mode = Mode.REPAIR): Report = mutex.withLock {
+    suspend fun ensure(
+        context: Context,
+        mode: Mode = Mode.REPAIR,
+        minJavaVersion: Int = 0,
+    ): Report = mutex.withLock {
         try {
-            withContext(Dispatchers.IO) { installMissing(context, mode) }
+            withContext(Dispatchers.IO) { installMissing(context, mode, minJavaVersion) }
         } catch (e: Throwable) {
             Logger.error(TAG, "Runtime provisioning failed", e)
             Report(
@@ -102,6 +139,40 @@ object RuntimeProvisioner {
             runCatching { ensureDefaultSelection() }
         }
     }
+
+    /**
+     * JVM 相关流程（安装游戏 / 安装加载器 / 启动游戏）开跑前的自检。
+     *
+     * 「检测是否存在，没有就自动修复」就是这一个调用：
+     * - 已经有达标（≥ [required]）的运行库 → 只做几十次 stat，立刻返回；
+     * - 一个都没有（首次安装、换机型、解压被中断）→ 自动解压内置包；
+     * - 装完再验一次版本够不够，不够就把原因写进 [Readiness.problem]。
+     *
+     * 必须在主线程之外调用（内部有 IO，但仍然建议 `withContext(Dispatchers.IO)` 包一层，
+     * 因为 [currentUsable] 会读运行库目录）。
+     */
+    suspend fun ensureFor(context: Context, required: Int, reason: String): Readiness {
+        val before = currentUsable()
+        val report = ensure(context, Mode.REPAIR, required)
+        val versions = javaVersions()
+        val readiness = Readiness(
+            report = report,
+            javaVersion = report.usable.maxOfOrNull { versions[it] ?: 0 } ?: 0,
+            required = required,
+        )
+        Logger.info(
+            TAG,
+            "[$reason] java ready=${readiness.ok} (required=$required, available=${readiness.javaVersion}, " +
+                    "before=$before, installed=${report.installed}, " +
+                    "failed=${report.failed.map { it.first }}, skipped=${report.skipped})"
+        )
+        return readiness
+    }
+
+    /** 运行库名 → Java 主版本号（一次目录扫描，别在循环里逐个查） */
+    private fun javaVersions(): MutableMap<String, Int> = runCatching {
+        RuntimesManager.getRuntimes().associateTo(mutableMapOf<String, Int>()) { it.name to it.javaVersion }
+    }.getOrDefault(mutableMapOf())
 
     /**
      * 把 `javaRuntime` 校正到一个**真实存在**的运行库上。
@@ -141,17 +212,33 @@ object RuntimeProvisioner {
             .map { it.name }
     }.getOrDefault(emptyList())
 
-    private suspend fun installMissing(context: Context, mode: Mode): Report {
+    private suspend fun installMissing(context: Context, mode: Mode, minJavaVersion: Int): Report {
         val usable = currentUsable().toMutableList()
         val installed = mutableListOf<String>()
         val failed = mutableListOf<Pair<String, String>>()
         val skipped = mutableListOf<String>()
+        val versions = javaVersions()
 
-        // 先按 majorVersion 升序：Java 8 覆盖的版本最多，先保证它在
-        val order = Jre.entries.sortedBy { it.majorVersion }
+        fun meetsRequirement(): Boolean =
+            usable.any { (versions[it] ?: 0) >= minJavaVersion }
+
+        // 先按 majorVersion 升序：Java 8 覆盖的版本最多，先保证它在。
+        // REPAIR 时把「设置里正选着的那个」提到最前 —— 它多半就是坏掉的那个
+        // （解压被中断），先修它能省下几百 MB 的无谓解压。
+        val preferred = AllSettings.javaRuntime.getValue()
+        val order = if (mode == Mode.REPAIR) {
+            Jre.entries.sortedWith(compareBy({ it.jreName != preferred }, { it.majorVersion }))
+        } else {
+            Jre.entries.sortedBy { it.majorVersion }
+        }
 
         for (jre in order) {
-            if (mode == Mode.REPAIR && usable.isNotEmpty()) break
+            if (mode == Mode.REPAIR) {
+                // 已经有一个达到要求的运行库就收工
+                if (meetsRequirement()) break
+                // 低于要求的装了也没用，几百 MB 白花
+                if (jre.majorVersion < minJavaVersion) continue
+            }
 
             val task = runCatching { UnpackJreTask(context, jre) }
                 .onFailure { Logger.warning(TAG, "Failed to create unpack task for ${jre.jreName}", it) }
@@ -170,6 +257,7 @@ object RuntimeProvisioner {
             val state = runCatching { task.checkState() }.getOrDefault(InstallableItem.State.NOT_STARTED)
             if (state == InstallableItem.State.FINISHED) {
                 if (jre.jreName !in usable) usable += jre.jreName
+                versions[jre.jreName] = jre.majorVersion
                 continue
             }
 
@@ -187,6 +275,9 @@ object RuntimeProvisioner {
                         .getOrDefault(InstallableItem.State.NOT_STARTED)
                     if (after == InstallableItem.State.FINISHED) {
                         if (jre.jreName !in usable) usable += jre.jreName
+                        // versions 是进循环前扫的快照，装完必须补上，
+                        // 否则 meetsRequirement() 看不到刚装好的那个（会继续多装一个）
+                        versions[jre.jreName] = jre.majorVersion
                         installed += jre.jreName
                     } else {
                         failed += jre.jreName to

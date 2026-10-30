@@ -241,6 +241,7 @@
     <string name="download_install_error_download_failed">Some files failed to download, possibly due to network issues.</string>
     <string name="download_install_success_title">Installation Successful</string>
     <string name="download_install_success_message">Your game has been successfully installed!</string>
+    <string name="download_install_check_java">Check Java runtime</string>
     <string name="download_install_clear_temp">Clear cache files</string>
     <string name="download_install_input_version_name">Waiting for user to enter version name</string>
     <string name="download_install_input_version_name_title">Enter the pre-installed version name</string>
