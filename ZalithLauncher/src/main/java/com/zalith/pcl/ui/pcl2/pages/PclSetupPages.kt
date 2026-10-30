@@ -278,29 +278,6 @@ fun PclSetupLaunchPage() {
 
         Spacer(Modifier.height(PclDimens.cardGap))
 
-        // ---- 下载（PCL2「设置 → 启动 → 下载」里的最大线程数）
-        //
-        // PCL2 把下载相关的选项都放在「启动」页，这里先补上最影响下载成败的那一项：
-        // 同时下载的文件数。默认 64 与旧版写死的行为一致，调小能明显减少弱网下的超时重试。
-        // 下载源等其余下载项仍在「其他」页的「下载」卡片里。
-        PclCard(modifier = Modifier.fillMaxWidth(), title = PclStrings.LangPageSetupSystemDownload) {
-            Column {
-                SettingSliderRow(
-                    label = PclStrings.LangPageSetupSystemDownloadThread,
-                    unit = AllSettings.downloadThreads,
-                    min = 1,
-                    max = 128,
-                )
-                PclHint(
-                    text = "同时下载的文件数，默认 64。网络不稳定或设备较慢时调小，" +
-                            "能显著减少超时和失败重试（下载总耗时会长一些）；改完下一次下载生效。",
-                    theme = PclHintTheme.Blue,
-                )
-            }
-        }
-
-        Spacer(Modifier.height(PclDimens.cardGap))
-
         // ---- 高级选项（IsSwapped=True → 默认折叠）
         PclAdvancedCard()
 
@@ -1353,9 +1330,20 @@ fun PclSetupSystemPage() {
                     labelOf = { context.getString(it.textRes) },
                     onSelect = { AllSettings.assetPlatformSource.save(it) },
                 )
+                SettingSliderRow(
+                    label = PclStrings.LangPageSetupSystemDownloadThread,
+                    unit = AllSettings.downloadThreads,
+                    min = 1,
+                    max = 128,
+                )
                 Spacer(Modifier.height(6.dp))
                 PclHint(
                     text = "\u201c自动\u201d会按当前网络环境选择初始下载源，并在失败时自适应换源。",
+                    theme = PclHintTheme.Blue,
+                )
+                PclHint(
+                    text = "同时下载的文件数，默认 8（PCL2 同款滑条）。网络差或设备较慢时调小，"
+                            + "能减少超时和失败重试；网络快、机器好可以调大。改完下一次下载生效。",
                     theme = PclHintTheme.Blue,
                 )
             }

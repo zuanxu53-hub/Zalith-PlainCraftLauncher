@@ -507,11 +507,11 @@ object AllSettings : SettingsRegistry() {
     /**
      * 下载的最大线程数（同时下载的文件数）。
      *
-     * PCL2 的「设置 → 下载 → 最大线程数」对应项。默认 64 与旧版写死的
-     * [com.zalith.pcl.game.version.download.DEFAULT_DOWNLOAD_THREADS] 一致，行为不变；
-     * 网络差或存储慢时调小可以明显减少超时与失败重试。
+     * 对应 PCL2「设置 → 下载 → 最大线程数」的滑条，默认 8。调小能明显减少
+     * 弱网/慢存储下的超时与失败重试，调大更适合带宽充足的网络。
+     * 各下载器统一读 [com.zalith.pcl.game.version.download.currentDownloadThreads]。
      */
-    val downloadThreads = intSetting("downloadThreads", 64, 1..128)
+    val downloadThreads = intSetting("downloadThreads", 8, 1..128)
 
     //Control
     /**

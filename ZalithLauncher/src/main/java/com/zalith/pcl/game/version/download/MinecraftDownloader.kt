@@ -38,8 +38,8 @@ import java.io.IOException
 
 private const val TAG = "MinecraftDownloader"
 
-/** 单个安装流程的最大并发下载连接数（默认值；实际值取设置里的「最大线程数」） */
-const val DEFAULT_DOWNLOAD_THREADS = 64
+/** 单个安装流程的最大并发下载连接数（兜底默认值；实际值取设置里的「最大线程数」） */
+const val DEFAULT_DOWNLOAD_THREADS = 8
 
 /**
  * 当前生效的最大下载线程数（设置 → 下载 → 最大线程数）。
