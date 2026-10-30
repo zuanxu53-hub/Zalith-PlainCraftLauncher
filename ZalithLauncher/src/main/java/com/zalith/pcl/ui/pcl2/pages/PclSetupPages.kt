@@ -832,6 +832,32 @@ fun PclSetupUiPage() {
                             "50% / 75% 是给「窗口本来就小、想把界面压得更紧凑」的情况留的。",
                     theme = PclHintTheme.Blue,
                 )
+                // ---- 启动面板位置
+                // PCL 在桌面上把启动面板钉死在最左一列；手机横屏时那一列正好在手掌下面，
+                // 所以补一个换边的开关（只影响启动页）。
+                SetupRow("启动面板位置") {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(18.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        PclRadioBox(
+                            text = "左侧",
+                            checked = !PclSkinSettings.homePanelOnRight,
+                            onCheckedChange = {
+                                PclSkinSettings.applyHomePanelOnRight(false)
+                                PclSkinSettings.persist(context)
+                            },
+                        )
+                        PclRadioBox(
+                            text = "右侧",
+                            checked = PclSkinSettings.homePanelOnRight,
+                            onCheckedChange = {
+                                PclSkinSettings.applyHomePanelOnRight(true)
+                                PclSkinSettings.persist(context)
+                            },
+                        )
+                    }
+                }
                 PclHint(
                     text = "下面几张卡（背景图片 / 背景音乐 / 标题栏 / 主页 / 功能隐藏）都是真的在生效；" +
                             "深色模式、语言、动画这类 Zalith 原生外观设置请到 Zalith 自己的设置里改。",

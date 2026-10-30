@@ -1070,7 +1070,33 @@ internal fun PclMcVersionListView(
     onRetry: () -> Unit,
 ) {
     val stackPadding = PclVersionStackPadding
+
+    // ---- 版本号搜索
+    //
+    // PCL 2.9 的 `PageDownloadInstall` 里 `ComboVersion` 旁边就有个搜索框；版本列表一多
+    // （正式版 + 快照加起来一千多条），只靠四个折叠分组翻找基本没法用。
+    // 有关键词时不再分组，直接给一张「搜索结果」卡片 —— 跨分组的命中混在一起看更直观。
+    var keyword by remember { mutableStateOf("") }
+    val query = keyword.trim()
+    val matched = remember(query, pinned, grouped) {
+        if (query.isEmpty()) {
+            emptyList()
+        } else {
+            (pinned.map { it.first } + grouped.flatMap { it.second })
+                .distinctBy { it.version.id }
+                .filter { it.version.id.contains(query, ignoreCase = true) }
+        }
+    }
+
     Column(modifier = Modifier.fillMaxWidth()) {
+        if (!loading && error == null) {
+            PclSearchBox(
+                value = keyword,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 15.dp),
+                hint = "搜索版本号，例如 1.20.1",
+                onValueChange = { keyword = it },
+            )
+        }
         when {
             loading -> PclLoadingCard(
                 text = PclStrings.LangDownloadCompLoadingList,
@@ -1093,6 +1119,29 @@ internal fun PclMcVersionListView(
             }
 
             else -> {
+                if (query.isNotEmpty()) {
+                    // ---- 搜索结果（跨分组平铺，命中的行直接按版本号列出）
+                    PclCard(
+                        title = "搜索结果 (${matched.size})",
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 15.dp),
+                        contentPadding = stackPadding,
+                    ) {
+                        if (matched.isEmpty()) {
+                            PclText(text = "没有版本号包含「$query」的版本。", color = pclPalette.gray2)
+                        } else {
+                            matched.forEach { version ->
+                                key(version.version.id) {
+                                    PclMcVersionRow(
+                                        version = version,
+                                        logo = painterResource(version.pclLogoRes()),
+                                        onPick = onPick,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    return@Column
+                }
                 // 「最新版本」卡片：默认展开、不折叠（SwapType=2）
                 PclCard(
                     title = PclStrings.LangDownloadLatest,

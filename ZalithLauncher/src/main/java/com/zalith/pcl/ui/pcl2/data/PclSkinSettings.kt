@@ -69,6 +69,7 @@ object PclSkinSettings {
     private const val KEY_COLORFUL = "pcl2.ui.backgroundColorful"
     private const val KEY_HIDDEN = "pcl2.ui.hidden"
     private const val KEY_UI_SCALE = "pcl2.ui.scale"
+    private const val KEY_HOME_PANEL_RIGHT = "pcl2.ui.homePanelRight"
 
     /** 「界面缩放」的自动档：按窗口尺寸挑一个最接近 PCL 观感的档位。 */
     const val UI_SCALE_AUTO = -1
@@ -128,6 +129,16 @@ object PclSkinSettings {
     var uiScale by mutableStateOf(UI_SCALE_AUTO)
         private set
 
+    /**
+     * 启动页（主页）的「启动面板」放在左边还是右边。
+     *
+     * PCL 是桌面程序，启动面板固定在最左一列；手机上单手拿横屏时，最左边那列
+     * 往往正好被握持的手挡住，所以给一个「挪到右边」的开关 —— 换边只是把
+     * 左栏与内容区的**位置**对调，两块内容本身一模一样（登录 / 启动按钮仍在面板里）。
+     */
+    var homePanelOnRight by mutableStateOf(false)
+        private set
+
     /** 用户勾的原始状态（设置页的复选框看这个）。 */
     fun isHidden(key: String): Boolean = key in hidden
 
@@ -178,6 +189,10 @@ object PclSkinSettings {
         uiScale = value
     }
 
+    fun applyHomePanelOnRight(value: Boolean) {
+        homePanelOnRight = value
+    }
+
     /**
      * 实际生效的缩放系数。
      *
@@ -202,6 +217,7 @@ object PclSkinSettings {
             .filter { it.isNotBlank() }
             .toSet()
         uiScale = mmkv.getInt(KEY_UI_SCALE, UI_SCALE_AUTO)
+        homePanelOnRight = mmkv.getBoolean(KEY_HOME_PANEL_RIGHT, false)
     }
 
     fun persist(context: Context) {
@@ -212,6 +228,7 @@ object PclSkinSettings {
             putBoolean(KEY_COLORFUL, colorfulBackground)
             putString(KEY_HIDDEN, hidden.joinToString("|"))
             putInt(KEY_UI_SCALE, uiScale)
+            putBoolean(KEY_HOME_PANEL_RIGHT, homePanelOnRight)
         }
     }
 }

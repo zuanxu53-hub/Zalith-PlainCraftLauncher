@@ -21,7 +21,7 @@ import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.systemBarsIgnoringVisibility
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.ui.Modifier
 import com.zalith.pcl.game.plugin.PluginLoader
@@ -66,7 +66,12 @@ class Pcl2Activity : BaseAppCompatActivity() {
             PclMainScreen(
                 modifier = Modifier
                     .fillMaxSize()
-                    .windowInsetsPadding(WindowInsets.systemBars),
+                    // 用**忽略可见性**的系统栏尺寸：
+                    // 手势导航下，手指碰到屏幕底部（那块「小白条」）会让导航条临时冒出来，
+                    // `WindowInsets.systemBars` 随之在「有 / 无」之间来回跳 —— 整页内容跟着
+                    // 上下抽动、重排一次，看上去就是「点一下小白条整个界面向下飘 + 闪一下」。
+                    // 忽略可见性后这层 padding 是个常数，系统栏临时显隐不再改变布局。
+                    .windowInsetsPadding(WindowInsets.systemBarsIgnoringVisibility),
             )
         }
     }

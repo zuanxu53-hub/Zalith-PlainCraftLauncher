@@ -64,6 +64,7 @@ import com.zalith.pcl.game.download.assets.platform.getVersions
 import com.zalith.pcl.ui.screens.content.download.assets.elements.initAll
 import com.zalith.pcl.game.download.assets.utils.ModTranslations
 import com.zalith.pcl.game.download.assets.utils.getMcmodTitle
+import com.zalith.pcl.game.download.assets.utils.getTranslations
 import com.zalith.pcl.game.download.modpack.install.ModpackImporter
 import com.zalith.pcl.ui.pcl2.PclContent
 import com.zalith.pcl.ui.pcl2.PclHintHost
@@ -306,12 +307,20 @@ private fun PclResourceDetail(
                     enabled = projectUrl != null,
                     onClick = { projectUrl?.let { runtime.activity.openLinkInternal(it) } },
                 )
-                mcmod?.mcmod?.takeIf { it.isNotBlank() }?.let { mcmodId ->
-                    PclButton(
-                        text = "转到 MC 百科",
-                        height = 35.dp,
-                        onClick = { runtime.activity.openLinkInternal("https://www.mcmod.cn/class/$mcmodId.html") },
-                    )
+                // 链接必须按「当前这一栏是哪类资源」来拼：
+                // mcmod.cn 的 `class/<id>` 与 `modpack/<id>` 是**两套互不相通的编号**，
+                // 同一个数字在两边指向完全不同的东西（整合包 248 = 难以置信的优化，
+                // 而 class/248 = 矿物追踪）。以前这里写死了 `class/`，于是整合包详情
+                // 点「转到 MC 百科」全都会跳到同号的某个 Mod 上。
+                mcmod?.let { m ->
+                    val mcmodUrl = classes.getTranslations().getMcmodUrl(m)
+                    if (mcmodUrl.isNotBlank()) {
+                        PclButton(
+                            text = "转到 MC 百科",
+                            height = 35.dp,
+                            onClick = { runtime.activity.openLinkInternal(mcmodUrl) },
+                        )
+                    }
                 }
                 PclButton(
                     text = "复制名称",

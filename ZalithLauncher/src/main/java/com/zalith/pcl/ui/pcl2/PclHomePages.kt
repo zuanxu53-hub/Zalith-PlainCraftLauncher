@@ -2022,11 +2022,14 @@ private fun PclCustomHomePage(
             is PclHomeEntry.Web -> PclInlineWeb(
                 url = entry.url,
                 modifier = Modifier.fillMaxSize(),
+                // 主页必须在「自定义背景」之上当透明层用，否则整块被刷成白色
+                transparent = true,
             )
             is PclHomeEntry.Html -> PclInlineHtml(
                 html = entry.html,
                 modifier = Modifier.fillMaxSize(),
                 onEvent = onEvent,
+                transparent = true,
             )
         }
     }

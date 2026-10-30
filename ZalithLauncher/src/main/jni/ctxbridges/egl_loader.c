@@ -28,17 +28,56 @@ EGLBoolean (*eglSwapInterval_p) (EGLDisplay dpy, EGLint interval);
 EGLSurface (*eglGetCurrentSurface_p) (EGLint readdraw);
 EGLBoolean (*eglQuerySurface_p)(EGLDisplay display, EGLSurface surface, EGLint attribute, EGLint * value);
 
+/**
+ * 这个名字是不是 ANGLE 的 libGLESv2。
+ *
+ * 只比文件名本体（basename），不比整串：渲染器插件（MobileGlues 的「借用启动器 ANGLE」）
+ * 交付的往往是**绝对路径** `…/lib/arm64/libGLESv2_angle.so`，拿整串去 `strncmp`
+ * 前缀永远不相等 —— 于是走 else 分支，把 libGLESv2_angle.so 当成 EGL 库去 dlopen，
+ * 失败后回落到系统 libEGL.so，表现就是「选了 ANGLE，进游戏却没在用 ANGLE」。
+ */
+static int isAngleGLES(const char* name) {
+    if (name == NULL) return 0;
+    const char* base = strrchr(name, '/');
+    base = (base == NULL) ? name : base + 1;
+    return strncmp(base, "libGLESv2_angle", 16) == 0;
+}
+
+/**
+ * 由 GLES 库名推出同目录下的 ANGLE EGL 库名。
+ *
+ * 带目录前缀时把目录原样保留（插件的 so 可能在自己 APK 的 lib 目录里，
+ * 不带上目录是找不到的）；不带目录就直接给文件名。
+ */
+static void angleEGLName(const char* gles, char* out, size_t outSize) {
+    const char* slash = strrchr(gles, '/');
+    if (slash != NULL) {
+        size_t dirLen = (size_t) (slash - gles) + 1;
+        if (dirLen + strlen("libEGL_angle.so") + 1 <= outSize) {
+            memcpy(out, gles, dirLen);
+            strcpy(out + dirLen, "libEGL_angle.so");
+            return;
+        }
+    }
+    strncpy(out, "libEGL_angle.so", outSize - 1);
+    out[outSize - 1] = '\0';
+}
+
 void dlsym_EGL() {
     void* dl_handle = NULL;
     char* eglName = NULL;
+    char angleEglName[512];
     char* gles = getenv("LIBGL_GLES");
 
-    if (gles && !strncmp(gles, "libGLESv2_angle.so", 18))
+    if (isAngleGLES(gles))
     {
-        eglName = "libEGL_angle.so";
+        angleEGLName(gles, angleEglName, sizeof(angleEglName));
+        eglName = angleEglName;
     } else {
+        // LIBGL_EGL 是插件可以显式指定的 EGL 库（ANGLE 之外的自定义实现也走这里）
+        char* directEgl = getenv("LIBGL_EGL");
         char* execEgl = getenv("POJAVEXEC_EGL");
-        eglName = gles ? gles : (execEgl ? execEgl : "libEGL.so");
+        eglName = directEgl ? directEgl : (gles ? gles : (execEgl ? execEgl : "libEGL.so"));
     }
 
     if (eglName)

@@ -340,10 +340,31 @@ private fun PclInstanceRight(inav: PclInstanceNav) {
     }
 }
 
-/** 打开一个目录（走 Zalith 自带的文件管理器）。 */
+/**
+ * 打开一个目录（走 Zalith 自带的文件管理器）。
+ *
+ * 原来只是一句 `runCatching { launch(...) }`，于是：
+ *   · 目录还不存在（存档 / 资源包 / 光影包目录在「没装过任何东西」时本来就不存在），
+ *     文件管理器打开一个不存在的路径会直接抛异常，被 runCatching 吞掉 ——
+ *     用户看到的就是「点了没反应」；
+ *   · 真正出错时也没有任何提示。
+ * 所以这里先补建目录，再兜住异常并给出可见的反馈。
+ */
 internal fun openFolder(context: android.content.Context, folder: File) {
+    if (!folder.exists()) {
+        runCatching { folder.mkdirs() }
+    }
+    if (!folder.exists()) {
+        PclHintHost.push("目录不存在，也无法创建：${folder.absolutePath}", PclHintTheme.Red)
+        return
+    }
     runCatching {
         FileManagerLauncher.launch(context, rootPath = folder.absolutePath)
+    }.onFailure { th ->
+        PclHintHost.push(
+            "打开文件夹失败：${th.message ?: th.javaClass.simpleName}\n${folder.absolutePath}",
+            PclHintTheme.Red,
+        )
     }
 }
 

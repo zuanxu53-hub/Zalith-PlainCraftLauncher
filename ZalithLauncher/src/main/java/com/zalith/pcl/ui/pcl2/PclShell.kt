@@ -791,6 +791,10 @@ private fun PclBody(nav: PclNavController) {
         }
         val leftBarShadowWidth = with(LocalDensity.current) { 4.dp.toPx() }
 
+        // 「启动面板位置」只在启动页（且没进二级页）生效，别的版块左栏仍然在左边。
+        val homePanelOnRight =
+            sub == null && nav.section == PclSection.Home && PclSkinSettings.homePanelOnRight
+
         Box(modifier = Modifier.fillMaxSize()) {
             // 白色侧栏底 + 右侧 4dp 阴影（`RectLeftBackground` / `RectLeftShadow`）
             Box(
@@ -799,46 +803,69 @@ private fun PclBody(nav: PclNavController) {
                     .drawBehind {
                         val w = leftBgWidth.value.toPx()
                         if (w <= 0f) return@drawBehind
-                        drawRect(color = p.sidebarBackground, size = Size(w, size.height))
-                        drawRect(
-                            brush = leftBarShadow,
-                            topLeft = Offset(w, 0f),
-                            size = Size(leftBarShadowWidth, size.height),
-                        )
+                        if (homePanelOnRight) {
+                            // 面板挪到右边：底色条贴在右侧，阴影落在它的左边
+                            val x = size.width - w
+                            drawRect(color = p.sidebarBackground, topLeft = Offset(x, 0f), size = Size(w, size.height))
+                            drawRect(
+                                brush = leftBarShadow,
+                                topLeft = Offset(x - leftBarShadowWidth, 0f),
+                                size = Size(leftBarShadowWidth, size.height),
+                            )
+                        } else {
+                            drawRect(color = p.sidebarBackground, size = Size(w, size.height))
+                            drawRect(
+                                brush = leftBarShadow,
+                                topLeft = Offset(w, 0f),
+                                size = Size(leftBarShadowWidth, size.height),
+                            )
+                        }
                     },
             )
             Row(modifier = Modifier.fillMaxSize()) {
-                // 左栏内容所在列（宽度瞬时，与 PCL 的 `PanMainLeft` 一致）
-                Box(modifier = Modifier.width(leftWidth).fillMaxHeight()) {
-                    // MyPageLeft.TriggerShowAnimation：左栏整页重建时才逐个入场，
-                    // 因此把左栏内容按 sectionToken 分组；点击左栏条目不会重建它（与 PCL 一致）。
-                    key(nav.sectionToken) {
-                        if (sub != null) {
-                            sub.leftContent?.invoke()
-                        } else {
-                            when (nav.section) {
-                                PclSection.Home -> PclHomeLeft(nav)
-                                PclSection.Download -> PclDownloadLeft(nav)
-                                PclSection.Setup -> PclSetupLeft(nav)
-                                PclSection.Other -> PclOtherLeft(nav)
-                                PclSection.Link -> Unit // 联机页无左栏
+                // 启动页可以把「启动面板」挪到右边（设置 → 个性化 → 启动面板位置）：
+                // 只换两块的**位置**，宽度与内容都不变，所以下面用同一段 lambda 组装两次。
+                val panelFirst = homePanelOnRight.not()
+                if (panelFirst) {
+                    // 左栏内容所在列（宽度瞬时，与 PCL 的 `PanMainLeft` 一致）
+                    Box(modifier = Modifier.width(leftWidth).fillMaxHeight()) {
+                        // MyPageLeft.TriggerShowAnimation：左栏整页重建时才逐个入场，
+                        // 因此把左栏内容按 sectionToken 分组；点击左栏条目不会重建它（与 PCL 一致）。
+                        key(nav.sectionToken) {
+                            if (sub != null) {
+                                sub.leftContent?.invoke()
+                            } else {
+                                when (nav.section) {
+                                    PclSection.Home -> PclHomeLeft(nav)
+                                    PclSection.Download -> PclDownloadLeft(nav)
+                                    PclSection.Setup -> PclSetupLeft(nav)
+                                    PclSection.Other -> PclOtherLeft(nav)
+                                    PclSection.Link -> Unit // 联机页无左栏
+                                }
                             }
                         }
                     }
-                }
 
-                // 右侧内容
-                Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                    if (sub != null) {
-                        sub.content()
-                    } else {
-                        when (nav.section) {
-                            PclSection.Home -> PclHomeRight(nav)
-                            PclSection.Download -> PclDownloadRight(nav)
-                            PclSection.Link -> PclLinkRight(nav)
-                            PclSection.Setup -> PclSetupRight(nav)
-                            PclSection.Other -> PclOtherRight(nav)
+                    // 右侧内容
+                    Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                        if (sub != null) {
+                            sub.content()
+                        } else {
+                            when (nav.section) {
+                                PclSection.Home -> PclHomeRight(nav)
+                                PclSection.Download -> PclDownloadRight(nav)
+                                PclSection.Link -> PclLinkRight(nav)
+                                PclSection.Setup -> PclSetupRight(nav)
+                                PclSection.Other -> PclOtherRight(nav)
+                            }
                         }
+                    }
+                } else {
+                    Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                        PclHomeRight(nav)
+                    }
+                    Box(modifier = Modifier.width(leftWidth).fillMaxHeight()) {
+                        key(nav.sectionToken) { PclHomeLeft(nav) }
                     }
                 }
             }

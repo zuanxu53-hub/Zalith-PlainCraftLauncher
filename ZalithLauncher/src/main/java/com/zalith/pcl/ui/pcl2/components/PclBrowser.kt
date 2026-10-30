@@ -211,11 +211,15 @@ fun PclWebOverlay(
 
 /**
  * 内嵌网页（无工具栏）：给「自定义主页 → 联网更新」用。
+ *
+ * [transparent] 打开后网页不刷自己的底色，启动器的「自定义背景」能从底下透上来
+ * （PCL 的 `PanCustom` 也是把网页当透明层铺在背景上的）。
  */
 @Composable
 fun PclInlineWeb(
     url: String,
     modifier: Modifier = Modifier,
+    transparent: Boolean = false,
 ) {
     var webView by remember(url) { mutableStateOf<WebView?>(null) }
     var loading by remember(url) { mutableStateOf(true) }
@@ -225,7 +229,7 @@ fun PclInlineWeb(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
                 WebView(ctx).apply {
-                    configureLauncherWebView()
+                    configureLauncherWebView(transparent)
                     webViewClient = object : WebViewClient() {
                         override fun onPageStarted(view: WebView?, url2: String?, favicon: Bitmap?) {
                             super.onPageStarted(view, url2, favicon)
@@ -235,6 +239,10 @@ fun PclInlineWeb(
                         override fun onPageFinished(view: WebView?, url2: String?) {
                             super.onPageFinished(view, url2)
                             loading = false
+                            // 透明 WebView 只是让「画布底色」透明，网页自己的
+                            // `body{background:#fff}` 仍然会铺满 —— 主页网站基本都写了这一条，
+                            // 所以要顺手把它也清掉，否则用户只看到半透明的白。
+                            if (transparent) view?.clearPageBackground()
                         }
                     }
                     loadUrl(url)
@@ -278,6 +286,8 @@ fun PclInlineHtml(
     modifier: Modifier = Modifier,
     /** 主页里的内部按钮（启动游戏 / 下载文件 / 刷新主页…）回传给宿主处理。 */
     onEvent: ((type: String, data: String) -> Unit)? = null,
+    /** 见 [PclInlineWeb]：转换出来的主页 `body` 本来就是透明的，WebView 画布也必须透明。 */
+    transparent: Boolean = false,
 ) {
     // 「界面缩放」在 Compose 里是靠乘 density 实现的，WebView 是原生 View 吃不到，
     // 所以这里把缩放系数用 CSS `zoom` 注进页面，让字号、卡片、图片**整体**一起缩放。
@@ -303,7 +313,7 @@ fun PclInlineHtml(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
                 WebView(ctx).apply {
-                    configureLauncherWebView()
+                    configureLauncherWebView(transparent)
                     webViewClient = object : WebViewClient() {
                         override fun onPageFinished(view: WebView?, url2: String?) {
                             super.onPageFinished(view, url2)
@@ -396,6 +406,27 @@ private fun isMicrosoftLoginFailurePage(url: String): Boolean =
     url.contains("login.live.com/oauth20_authorize.srf") && url.contains("res=error")
 
 /**
+ * 把网页自己的底色清掉，让启动器的自定义背景透上来。
+ *
+ * 只对内嵌主页用：网页（尤其是 mcnews 这类站点）几乎都会给 `html/body` 写死
+ * 一个白底，光把 WebView 画布设成透明是不够的。
+ */
+@SuppressLint("SetJavaScriptEnabled")
+private fun WebView.clearPageBackground() {
+    runCatching {
+        evaluateJavascript(
+            "(function(){" +
+                "var s=document.createElement('style');" +
+                "s.setAttribute('data-zalith','1');" +
+                "s.textContent='html,body{background-color:transparent !important;background-image:none !important;}';" +
+                "(document.head||document.documentElement).appendChild(s);" +
+                "})()",
+            null,
+        )
+    }
+}
+
+/**
  * 启动器内置浏览器的统一设置。
  *
  * 两个要点：
@@ -406,7 +437,12 @@ private fun isMicrosoftLoginFailurePage(url: String): Boolean =
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Suppress("DEPRECATION")
-private fun WebView.configureLauncherWebView() {
+private fun WebView.configureLauncherWebView(transparent: Boolean = false) {
+    // 主页那一层必须透明：WebView 默认把画布刷成白色，用户设的「自定义背景」
+    // （`PCL/Background` 里的图 / 彩色背景）就被整块盖住，看上去像背景变白了。
+    setBackgroundColor(
+        if (transparent) android.graphics.Color.TRANSPARENT else android.graphics.Color.WHITE
+    )
     settings.apply {
         javaScriptEnabled = true
         domStorageEnabled = true
