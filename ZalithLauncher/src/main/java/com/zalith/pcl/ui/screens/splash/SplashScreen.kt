@@ -52,7 +52,9 @@ import com.zalith.pcl.viewmodel.SplashBackStackViewModel
 fun SplashScreen(
     startAllTask: () -> Unit,
     unpackItems: List<InstallableItem>,
-    screenViewModel: SplashBackStackViewModel
+    screenViewModel: SplashBackStackViewModel,
+    /** 已经自动开始安装（不需要用户点「同意」）：按钮随之置灰并改文案 */
+    autoStarted: Boolean = false
 ) {
     Column(
         modifier = Modifier
@@ -76,7 +78,8 @@ fun SplashScreen(
                 .fillMaxWidth(),
             startAllTask = startAllTask,
             unpackItems = unpackItems,
-            screenViewModel = screenViewModel
+            screenViewModel = screenViewModel,
+            autoStarted = autoStarted
         )
     }
 }
@@ -106,7 +109,8 @@ private fun NavigationUI(
     modifier: Modifier = Modifier,
     startAllTask: () -> Unit,
     unpackItems: List<InstallableItem>,
-    screenViewModel: SplashBackStackViewModel
+    screenViewModel: SplashBackStackViewModel,
+    autoStarted: Boolean = false
 ) {
     val backStack = screenViewModel.splashScreen.backStack
 
@@ -123,9 +127,9 @@ private fun NavigationUI(
             popTransitionSpec = rememberTransitionSpec(),
             entryProvider = entryProvider {
                 entry<NormalNavKey.UnpackDeps> {
-                    UnpackScreen(unpackItems, screenViewModel) {
+                    UnpackScreen(unpackItems, screenViewModel, {
                         startAllTask()
-                    }
+                    }, autoStarted = autoStarted)
                 }
             }
         )

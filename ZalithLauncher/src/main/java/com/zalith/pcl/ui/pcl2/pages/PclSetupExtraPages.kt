@@ -68,6 +68,7 @@ import com.zalith.pcl.context.getFileName
 import com.zalith.pcl.game.control.ControlData
 import com.zalith.pcl.game.control.ControlManager
 import com.zalith.pcl.game.control.openDocumentStream
+import com.zalith.pcl.components.jre.RuntimeProvisioner
 import com.zalith.pcl.game.multirt.Runtime
 import com.zalith.pcl.game.multirt.RuntimesManager
 import com.zalith.pcl.path.PathManager
@@ -1039,13 +1040,41 @@ fun PclSetupJavaPage() {
     var token by remember { mutableIntStateOf(0) }
     var deleteTarget by remember { mutableStateOf<Runtime?>(null) }
     var loading by remember { mutableStateOf(true) }
+    var installing by remember { mutableStateOf(false) }
 
     LaunchedEffect(token) {
         loading = true
         runtimes = withContext(Dispatchers.IO) {
             runCatching { RuntimesManager.getRuntimes(forceLoad = true) }.getOrDefault(emptyList())
         }
+        // 列表是空的：先自动补一次内置运行库。
+        // 有些机型首次安装时解压页被打断，进到这里就是「一个 Java 都没有」——
+        // 原来只能让用户自己去导入 .xz，等于玩不了游戏。
+        if (runtimes.isEmpty()) {
+            val report = RuntimeProvisioner.ensure(context, RuntimeProvisioner.Mode.REPAIR)
+            if (report.installed.isNotEmpty()) {
+                runtimes = withContext(Dispatchers.IO) {
+                    runCatching { RuntimesManager.getRuntimes(forceLoad = true) }
+                        .getOrDefault(emptyList())
+                }
+                PclHintHost.push(
+                    "已自动安装内置 Java 运行库：${report.installed.joinToString("、")}",
+                    PclHintTheme.Blue,
+                )
+            }
+        }
         loading = false
+    }
+
+    // 选中的运行库已经不在了（被删掉 / 本机根本没有那个内置包）：改指到第一个真实可用的，
+    // 否则设置里显示的「已选中」是个指向空气的名字，启动游戏时才报错
+    LaunchedEffect(runtimes) {
+        val current = AllSettings.javaRuntime.getValue()
+        if (runtimes.isEmpty()) return@LaunchedEffect
+        if (current.isNotBlank() && runtimes.any { it.name == current }) return@LaunchedEffect
+        runtimes.minByOrNull { it.javaVersion }?.let {
+            AllSettings.javaRuntime.save(it.name)
+        }
     }
 
     // 导入 .xz 运行库：与原生 `progressRuntimeUri` 同一条链路
@@ -1141,12 +1170,49 @@ fun PclSetupJavaPage() {
                 when {
                     loading -> PclText(text = "正在扫描运行库…", color = summaryColor, fontSize = 12)
 
-                    runtimes.isEmpty() -> PclText(
-                        text = "没有找到任何 Java 运行库。可以导入 .xz 格式的运行库，" +
-                                "或先安装一个游戏版本让启动器自动下载。",
-                        color = summaryColor,
-                        fontSize = 12,
-                    )
+                    runtimes.isEmpty() -> Column {
+                        PclText(
+                            text = "没有找到任何 Java 运行库。点下面的按钮自动安装内置运行库，" +
+                                    "也可以自己导入 .xz 格式的运行库。",
+                            color = summaryColor,
+                            fontSize = 12,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        PclButton(
+                            text = if (installing) "正在安装…" else "安装内置运行库",
+                            logo = PclIcons.addBox,
+                            enabled = !installing,
+                            onClick = {
+                                installing = true
+                                scope.launch {
+                                    val report = RuntimeProvisioner.ensure(
+                                        context,
+                                        RuntimeProvisioner.Mode.REPAIR,
+                                    )
+                                    installing = false
+                                    when {
+                                        report.installed.isNotEmpty() -> {
+                                            token++
+                                            PclHintHost.push(
+                                                "已安装：${report.installed.joinToString("、")}",
+                                                PclHintTheme.Blue,
+                                            )
+                                        }
+
+                                        report.failed.isNotEmpty() -> PclHintHost.push(
+                                            "安装失败：${report.failed.first().second}",
+                                            PclHintTheme.Red,
+                                        )
+
+                                        else -> PclHintHost.push(
+                                            "没有可安装的内置运行库（本机架构没有配套的包），可导入 .xz。",
+                                            PclHintTheme.Yellow,
+                                        )
+                                    }
+                                }
+                            },
+                        )
+                    }
 
                     else -> runtimes.forEach { runtime ->
                         PclJavaRow(

@@ -21,11 +21,16 @@ import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.lifecycleScope
+import com.zalith.pcl.components.jre.RuntimeProvisioner
 import com.zalith.pcl.game.plugin.PluginLoader
 import com.zalith.pcl.game.renderer.Renderers
 import com.zalith.pcl.ui.base.BaseAppCompatActivity
+import com.zalith.pcl.ui.pcl2.PclHintHost
 import com.zalith.pcl.ui.pcl2.PclMainScreen
+import com.zalith.pcl.ui.pcl2.components.PclHintTheme
 import com.zalith.pcl.ui.pcl2.data.PclImportBridge
+import kotlinx.coroutines.launch
 
 /**
  * PCL2 界面入口。
@@ -59,6 +64,34 @@ class Pcl2Activity : BaseAppCompatActivity() {
         // 表现为「本次运行里新建的账号看得见，退出应用再进来全没了」
         // （新建时 `suspendSaveAccount` 会顺手 reload 一次，重启后就没人 reload 了）。
         refreshData()
+        // ---- 每次打开启动器都自检 Java 运行库 ----------------------------------
+        // 某些机型首次安装时会出岔子：解压页被打断（存储不足、进程被杀、用户直接退出），
+        // 或者内置包和本机架构对不上（例如 JRE 25 没有 x86 的 bin-x86.tar.xz），
+        // 结果「设置 → Java 运行库」里一个都没有，只能手动导入 .xz。
+        // 这里在后台补一次：已经有可用运行库时立刻返回，一个都没有才自动装一个。
+        lifecycleScope.launch {
+            val hadNone = RuntimeProvisioner.currentUsable().isEmpty()
+            val report = RuntimeProvisioner.ensure(this@Pcl2Activity, RuntimeProvisioner.Mode.REPAIR)
+            when {
+                report.installed.isNotEmpty() -> PclHintHost.push(
+                    "已自动安装内置 Java 运行库：${report.installed.joinToString("、")}",
+                    PclHintTheme.Blue,
+                )
+
+                hadNone && !report.hasUsable && report.failed.isNotEmpty() -> PclHintHost.push(
+                    "Java 运行库不可用：${report.failed.first().second}",
+                    PclHintTheme.Red,
+                )
+
+                // 没装、也没报错、还没跳过任何包 —— 说明内置包与本机架构对不上
+                // （例如只打包了 arm 的 APK 跑在 x86 设备上）。
+                // 这种情况不会自己好了，必须明确告诉用户去哪里补，否则他只看到空列表。
+                hadNone && !report.hasUsable && report.skipped.isNotEmpty() -> PclHintHost.push(
+                    "本机架构没有配套的内置 Java。请到「设置 → Java 运行库」导入 .xz 运行库。",
+                    PclHintTheme.Red,
+                )
+            }
+        }
         setContent {
             // **强制全屏：一点内边距都不留，刘海也不避。**
             //

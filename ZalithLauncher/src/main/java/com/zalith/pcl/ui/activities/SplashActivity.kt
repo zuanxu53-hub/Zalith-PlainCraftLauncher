@@ -27,15 +27,18 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import com.zalith.pcl.R
-import com.zalith.pcl.SplashException
 import com.zalith.pcl.components.Components
 import com.zalith.pcl.components.InstallableItem
 import com.zalith.pcl.components.UnpackComponentsTask
 import com.zalith.pcl.components.jre.Jre
+import com.zalith.pcl.components.jre.RuntimeProvisioner
 import com.zalith.pcl.components.jre.UnpackJnaTask
 import com.zalith.pcl.components.jre.UnpackJreTask
 import com.zalith.pcl.setting.AllSettings
@@ -50,6 +53,8 @@ import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 private const val TAG = "SplashActivity"
@@ -69,6 +74,13 @@ const val IMPORT_TYPE_UNKNOWN = "unknown"
 class SplashActivity : BaseAppCompatActivity() {
     private val unpackItems: MutableList<InstallableItem> = ArrayList()
     private val finishedTaskCount = AtomicInteger(0)
+
+    /** 自动安装只允许启动一次：界面上的按钮仍然在，重复点不能把任务再排一遍 */
+    private val taskStarted = AtomicBoolean(false)
+    /** 给界面看的「已自动开始」状态（Compose 要能感知到变化） */
+    private var autoStarted by mutableStateOf(false)
+    /** 本次解压失败的任务（任务名 to 原因），跑完统一记日志 */
+    private val failures = ConcurrentLinkedQueue<Pair<String, String>>()
 
     private var pendingImportIntent: Intent? = null
 
@@ -95,11 +107,21 @@ class SplashActivity : BaseAppCompatActivity() {
                     SplashScreen(
                         startAllTask = { startAllTask() },
                         unpackItems = unpackItems,
-                        screenViewModel = backStackViewModel
+                        screenViewModel = backStackViewModel,
+                        // 现在不需要用户点「同意」了，按钮要显示成「正在安装」并置灰，
+                        // 否则自动装到一半时按钮还写着「同意」，看着像没反应
+                        autoStarted = autoStarted,
                     )
                 }
             }
         }
+
+        // **每次打开启动器都自动检测并安装**。
+        //
+        // 以前必须点一下「同意」才开始解压：某些机型上这一屏被切走 / 返回键退出，
+        // 依赖就一个都没装，进去以后 Java 运行库列表是空的（只能在设置里手动导入 .xz）。
+        // 这里在 setContent 之后立刻开跑，界面只负责显示进度。
+        startAllTask()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -199,6 +221,10 @@ class SplashActivity : BaseAppCompatActivity() {
     }
 
     private fun startAllTask() {
+        // 自动启动与界面按钮都会调这里，只允许真正跑一次
+        if (!taskStarted.compareAndSet(false, true)) return
+        autoStarted = true
+
         lifecycleScope.launch {
             val jobs = unpackItems
                 .filter {
@@ -209,20 +235,38 @@ class SplashActivity : BaseAppCompatActivity() {
                 .map { item ->
                     launch(Dispatchers.IO) {
                         item.updateState(InstallableItem.State.RUNNING)
-                        runCatching {
-                            item.task.run()
-                        }.onFailure {
-                            throw SplashException(it)
-                        }
-                        finishedTaskCount.incrementAndGet()
-                        item.updateState(InstallableItem.State.FINISHED)
+                        // **单项失败绝不能往外抛。**
+                        // 原来这里是 `onFailure { throw SplashException(it) }`：异常落到子协程，
+                        // 父协程随之取消 —— 排队的兄弟任务全被打断。存储紧张的机型上
+                        // （解压四个运行库要 1GB 以上）装到一半空间不足，结果一个 Java 都没留下，
+                        // 用户看到的就是「首次安装后 Java 列表是空的」。
+                        val ok = runCatching { item.task.run() }
+                            .onFailure { e ->
+                                val reason = e.message ?: e::class.java.simpleName
+                                Logger.error(TAG, "Failed to unpack ${item.name}: $reason", e)
+                                failures.add(item.name to reason)
+                            }
+                            .isSuccess
+                        // 失败退回「未安装」：界面上如实显示没装上，而不是假装完成
+                        item.updateState(
+                            if (ok) InstallableItem.State.FINISHED else InstallableItem.State.NOT_STARTED
+                        )
+                        if (ok) finishedTaskCount.incrementAndGet()
                     }
                 }
             jobs.joinAll()
         }.invokeOnCompletion {
-            AllSettings.javaRuntime.apply {
-                //检查并设置默认的Java环境
-                if (getValue().isEmpty()) save(Jre.JRE_8.jreName)
+            // 不再无条件写 `Internal-8`：本机架构没有这个内置包时（例如 JRE 25 不带 x86 的
+            // `bin-x86.tar.xz`），那个值是「指向空气」的，设置里看着已选中、启动却找不到运行库。
+            runCatching { RuntimeProvisioner.ensureDefaultSelection() }
+                .onFailure { Logger.warning(TAG, "Failed to correct the default java runtime", it) }
+
+            if (failures.isNotEmpty()) {
+                Logger.error(
+                    TAG,
+                    "Some dependencies failed to unpack: " +
+                            failures.joinToString { "${it.first}（${it.second}）" }
+                )
             }
             finishSplash()
         }

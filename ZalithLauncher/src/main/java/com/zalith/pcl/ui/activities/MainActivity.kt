@@ -42,6 +42,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.movtery.guide.GuideHost
 import com.zalith.pcl.R
 import com.zalith.pcl.context.COPY_LABEL_LINK
+import com.zalith.pcl.components.jre.RuntimeProvisioner
 import com.zalith.pcl.coroutine.Task
 import com.zalith.pcl.coroutine.TaskSystem
 import com.zalith.pcl.filemanager.FileManagerLauncher
@@ -202,6 +203,29 @@ class MainActivity : BaseAppCompatActivity() {
         //加载插件
         PluginLoader.loadAllPlugins(this, false)
         refreshData()
+        // 每次打开启动器都自检一遍 Java 运行库：已有可用项直接返回，
+        // 一个都没有时自动装（某些机型首次安装时解压被打断，Java 列表会是空的）
+        lifecycleScope.launch {
+            val hadNone = RuntimeProvisioner.currentUsable().isEmpty()
+            val report = RuntimeProvisioner.ensure(this@MainActivity, RuntimeProvisioner.Mode.REPAIR)
+            val message = when {
+                report.installed.isNotEmpty() ->
+                    "已自动安装内置 Java 运行库：${report.installed.joinToString("、")}"
+
+                hadNone && !report.hasUsable && report.failed.isNotEmpty() ->
+                    "Java 运行库不可用：${report.failed.first().second}"
+
+                // 内置包与本机架构对不上（例如只打包了 arm 的 APK 跑在 x86 设备上）：
+                // 不会自己好，必须告诉用户去哪里补
+                hadNone && !report.hasUsable && report.skipped.isNotEmpty() ->
+                    "本机架构没有配套的内置 Java，请到「设置 → Java 运行库」导入 .xz 运行库。"
+
+                else -> null
+            }
+            message?.let {
+                Toast.makeText(this@MainActivity, it, Toast.LENGTH_LONG).show()
+            }
+        }
 
         //注册文件管理器事件监听
         fmEventRegistrar = FileManagerEventRegistrar(this, ::onFileManagerEvent).also { it.start() }

@@ -85,12 +85,14 @@ import com.zalith.pcl.viewmodel.SplashBackStackViewModel
 fun UnpackScreen(
     items: List<InstallableItem>,
     screenViewModel: SplashBackStackViewModel,
-    onAgreeClick: () -> Unit = {}
+    onAgreeClick: () -> Unit = {},
+    /** 已经开始自动安装（启动时不等用户点「同意」）：按钮置灰 + 文案换成「正在安装」 */
+    autoStarted: Boolean = false
 ) {
     if (AllSettings.usePcl2Ui.state) {
         // z-pcl：解压依赖页也按 PCL2 样式渲染（这是进启动器前的第一屏，
         // 不做的话用户会先看到一屏原生 Material 再「跳」进 PCL 界面）
-        PclUnpackContent(items = items, onAgreeClick = onAgreeClick)
+        PclUnpackContent(items = items, onAgreeClick = onAgreeClick, autoStarted = autoStarted)
     } else {
         BaseScreen(
             screenKey = NormalNavKey.UnpackDeps,
@@ -115,7 +117,8 @@ fun UnpackScreen(
                     modifier = Modifier
                         .weight(3f)
                         .fillMaxHeight(),
-                    onAgreeClick = onAgreeClick
+                    onAgreeClick = onAgreeClick,
+                    autoStarted = autoStarted
                 )
             }
         }
@@ -132,10 +135,14 @@ fun UnpackScreen(
 private fun PclUnpackContent(
     items: List<InstallableItem>,
     onAgreeClick: () -> Unit,
+    autoStarted: Boolean = false,
 ) {
     PclTheme(palette = PclThemeState.palette) {
         val p = pclPalette
-        var installing by remember { mutableStateOf(false) }
+        var clicked by remember { mutableStateOf(false) }
+        // 自动安装已经开跑时，按钮就该是「正在安装」且不可再点 ——
+        // 否则界面显示「同意」，用户会以为没开始，点了也没反应（任务已经跑起来了）
+        val installing = clicked || autoStarted
 
         Column(
             modifier = Modifier
@@ -199,7 +206,7 @@ private fun PclUnpackContent(
                         colorState = PclColorState.Highlight,
                         modifier = Modifier.fillMaxWidth(),
                         onClick = {
-                            installing = true
+                            clicked = true
                             onAgreeClick()
                         }
                     )
@@ -259,9 +266,11 @@ private fun PclUnpackItemRow(item: InstallableItem) {
 private fun ActionMenu(
     isVisible: Boolean,
     modifier: Modifier = Modifier,
-    onAgreeClick: () -> Unit = {}
+    onAgreeClick: () -> Unit = {},
+    autoStarted: Boolean = false,
 ) {
-    var installing by remember { mutableStateOf(false) }
+    var clicked by remember { mutableStateOf(false) }
+    val installing = clicked || autoStarted
 
     val xOffset by swapAnimateDpAsState(
         targetValue = 40.dp,
@@ -292,7 +301,7 @@ private fun ActionMenu(
             enabled = !installing,
             modifier = Modifier.fillMaxWidth(),
             onClick = {
-                installing = true
+                clicked = true
                 onAgreeClick()
             }
         ) {

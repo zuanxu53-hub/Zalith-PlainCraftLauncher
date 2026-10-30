@@ -313,14 +313,44 @@ object RuntimesManager {
         if (!dest.exists()) return listOf("运行库目录")
 
         val missing = mutableListOf<String>()
-        if (!File(dest, "bin/java").exists()) missing += "bin/java"
+        if (!File(dest, "bin/java").exists() && !File(dest, "jre/bin/java").exists()) missing += "bin/java"
 
-        val soNames = runCatching {
-            FileUtils.listFiles(dest, arrayOf("so"), true).map { it.name }.toHashSet()
-        }.getOrDefault(emptySet<String>())
-        if ("libjli.so" !in soNames) missing += "libjli.so"
-        if ("libjvm.so" !in soNames) missing += "libjvm.so"
+        if (!hasRuntimeSo(dest, "libjli.so")) missing += "libjli.so"
+        if (!hasRuntimeSo(dest, "libjvm.so")) missing += "libjvm.so"
         return missing
+    }
+
+    /**
+     * 运行库里有没有这个 `.so`。
+     *
+     * **先按已知布局逐个 stat，命中就返回** —— 这个方法每次打开启动器都会对每个运行库跑一遍
+     * （解压页 checkState + 主界面兜底检测），而运行库解压后有上万个文件，
+     * `FileUtils.listFiles(..., true)` 全树遍历一次就要几百毫秒，几个库叠起来就是好几秒的
+     * 「启动白屏」。已知布局最多几十次 stat 就够。
+     *
+     * 布局没命中时才退回全树扫描：导入的第三方运行库可能被重新打包成别的结构，
+     * 这里宁可慢一点，也不能把「其实是好的」判成残缺（误判的后果是反复重装几百 MB）。
+     */
+    private fun hasRuntimeSo(dest: File, soName: String): Boolean {
+        val candidates = buildList {
+            for (base in listOf(File(dest, "lib"), File(dest, "jre/lib"))) {
+                if (!base.exists()) continue
+                add(File(base, soName))
+                add(File(base, "jli/$soName"))
+                add(File(base, "server/$soName"))
+                base.listFiles()?.forEach { arch ->
+                    if (!arch.isDirectory) return@forEach
+                    add(File(arch, soName))
+                    add(File(arch, "jli/$soName"))
+                    add(File(arch, "server/$soName"))
+                }
+            }
+        }
+        if (candidates.any { it.isFile }) return true
+
+        return runCatching {
+            FileUtils.listFiles(dest, arrayOf("so"), true).any { it.name == soName }
+        }.getOrDefault(false)
     }
 
     /**
