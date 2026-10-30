@@ -23,7 +23,7 @@ import com.zalith.pcl.coroutine.Task
 import com.zalith.pcl.game.download.assets.platform.PlatformVersion
 import com.zalith.pcl.game.download.assets.platform.mcim.mapMCIMMirrorUrls
 import com.zalith.pcl.game.download.engine.findHttpCode
-import com.zalith.pcl.game.version.download.DEFAULT_DOWNLOAD_THREADS
+import com.zalith.pcl.game.version.download.currentDownloadThreads
 import com.zalith.pcl.game.version.download.DownloadTask
 import com.zalith.pcl.game.version.download.runBatchDownloads
 import com.zalith.pcl.ui.androidText
@@ -37,7 +37,7 @@ private const val TAG = "ModVersionUpdater"
 class ModVersionUpdater(
     val mods: List<PlatformVersion>,
     private val targetDir: File,
-    private val maxDownloadThreads: Int = DEFAULT_DOWNLOAD_THREADS
+    private val maxDownloadThreads: Int = currentDownloadThreads
 ) {
     suspend fun startDownload(task: Task) {
         val tasks = mods.map { newVersion ->

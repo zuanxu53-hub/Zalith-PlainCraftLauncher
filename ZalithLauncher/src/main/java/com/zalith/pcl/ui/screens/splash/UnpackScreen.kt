@@ -85,14 +85,12 @@ import com.zalith.pcl.viewmodel.SplashBackStackViewModel
 fun UnpackScreen(
     items: List<InstallableItem>,
     screenViewModel: SplashBackStackViewModel,
-    onAgreeClick: () -> Unit = {},
-    /** 已经开始自动安装（启动时不等用户点「同意」）：按钮置灰 + 文案换成「正在安装」 */
-    autoStarted: Boolean = false
+    onAgreeClick: () -> Unit = {}
 ) {
     if (AllSettings.usePcl2Ui.state) {
         // z-pcl：解压依赖页也按 PCL2 样式渲染（这是进启动器前的第一屏，
         // 不做的话用户会先看到一屏原生 Material 再「跳」进 PCL 界面）
-        PclUnpackContent(items = items, onAgreeClick = onAgreeClick, autoStarted = autoStarted)
+        PclUnpackContent(items = items, onAgreeClick = onAgreeClick)
     } else {
         BaseScreen(
             screenKey = NormalNavKey.UnpackDeps,
@@ -117,8 +115,7 @@ fun UnpackScreen(
                     modifier = Modifier
                         .weight(3f)
                         .fillMaxHeight(),
-                    onAgreeClick = onAgreeClick,
-                    autoStarted = autoStarted
+                    onAgreeClick = onAgreeClick
                 )
             }
         }
@@ -135,14 +132,13 @@ fun UnpackScreen(
 private fun PclUnpackContent(
     items: List<InstallableItem>,
     onAgreeClick: () -> Unit,
-    autoStarted: Boolean = false,
 ) {
     PclTheme(palette = PclThemeState.palette) {
         val p = pclPalette
+        // 只有用户点了「同意并安装」之后按钮才变成「正在安装」并置灰。
+        // 这一屏**不再自动开始**：装什么、占多少空间由用户点这一下决定。
         var clicked by remember { mutableStateOf(false) }
-        // 自动安装已经开跑时，按钮就该是「正在安装」且不可再点 ——
-        // 否则界面显示「同意」，用户会以为没开始，点了也没反应（任务已经跑起来了）
-        val installing = clicked || autoStarted
+        val installing = clicked
 
         Column(
             modifier = Modifier
@@ -267,10 +263,9 @@ private fun ActionMenu(
     isVisible: Boolean,
     modifier: Modifier = Modifier,
     onAgreeClick: () -> Unit = {},
-    autoStarted: Boolean = false,
 ) {
     var clicked by remember { mutableStateOf(false) }
-    val installing = clicked || autoStarted
+    val installing = clicked
 
     val xOffset by swapAnimateDpAsState(
         targetValue = 40.dp,

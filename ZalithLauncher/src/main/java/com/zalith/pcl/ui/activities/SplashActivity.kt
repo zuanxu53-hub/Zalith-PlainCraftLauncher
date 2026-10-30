@@ -27,9 +27,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
@@ -75,10 +72,8 @@ class SplashActivity : BaseAppCompatActivity() {
     private val unpackItems: MutableList<InstallableItem> = ArrayList()
     private val finishedTaskCount = AtomicInteger(0)
 
-    /** 自动安装只允许启动一次：界面上的按钮仍然在，重复点不能把任务再排一遍 */
+    /** 解压任务只允许启动一次：按钮重复点不能把任务再排一遍 */
     private val taskStarted = AtomicBoolean(false)
-    /** 给界面看的「已自动开始」状态（Compose 要能感知到变化） */
-    private var autoStarted by mutableStateOf(false)
     /** 本次解压失败的任务（任务名 to 原因），跑完统一记日志 */
     private val failures = ConcurrentLinkedQueue<Pair<String, String>>()
 
@@ -108,20 +103,10 @@ class SplashActivity : BaseAppCompatActivity() {
                         startAllTask = { startAllTask() },
                         unpackItems = unpackItems,
                         screenViewModel = backStackViewModel,
-                        // 现在不需要用户点「同意」了，按钮要显示成「正在安装」并置灰，
-                        // 否则自动装到一半时按钮还写着「同意」，看着像没反应
-                        autoStarted = autoStarted,
                     )
                 }
             }
         }
-
-        // **每次打开启动器都自动检测并安装**。
-        //
-        // 以前必须点一下「同意」才开始解压：某些机型上这一屏被切走 / 返回键退出，
-        // 依赖就一个都没装，进去以后 Java 运行库列表是空的（只能在设置里手动导入 .xz）。
-        // 这里在 setContent 之后立刻开跑，界面只负责显示进度。
-        startAllTask()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -221,9 +206,8 @@ class SplashActivity : BaseAppCompatActivity() {
     }
 
     private fun startAllTask() {
-        // 自动启动与界面按钮都会调这里，只允许真正跑一次
+        // 界面上只有一个「同意并安装」按钮，重复点也只跑一次
         if (!taskStarted.compareAndSet(false, true)) return
-        autoStarted = true
 
         lifecycleScope.launch {
             val jobs = unpackItems

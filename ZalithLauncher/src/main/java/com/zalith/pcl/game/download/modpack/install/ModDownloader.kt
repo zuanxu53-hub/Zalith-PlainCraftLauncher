@@ -23,6 +23,7 @@ import com.zalith.pcl.coroutine.Task
 import com.zalith.pcl.game.download.engine.findHttpCode
 import com.zalith.pcl.game.version.download.DownloadFailedException
 import com.zalith.pcl.game.version.download.DownloadTask
+import com.zalith.pcl.game.version.download.currentDownloadThreads
 import com.zalith.pcl.game.version.download.runBatchDownloads
 import com.zalith.pcl.ui.androidText
 import com.zalith.pcl.utils.file.formatFileSize
@@ -69,7 +70,7 @@ private fun File?.isOptionalAsset(): Boolean {
  */
 class ModDownloader(
     val mods: List<ModFile>,
-    private val maxDownloadThreads: Int = 64
+    private val maxDownloadThreads: Int = currentDownloadThreads
 ) {
     suspend fun startDownload(task: Task) {
         task.updateMessage(null)

@@ -25,6 +25,7 @@ import com.zalith.pcl.coroutine.TitledTask
 import com.zalith.pcl.game.path.getGameHome
 import com.zalith.pcl.game.versioninfo.models.GameManifest
 import com.zalith.pcl.game.versioninfo.models.VersionManifest
+import com.zalith.pcl.setting.AllSettings
 import com.zalith.pcl.ui.androidText
 import com.zalith.pcl.utils.file.formatFileSize
 import com.zalith.pcl.utils.logging.Logger
@@ -37,8 +38,18 @@ import java.io.IOException
 
 private const val TAG = "MinecraftDownloader"
 
-/** 单个安装流程的最大并发下载连接数 */
+/** 单个安装流程的最大并发下载连接数（默认值；实际值取设置里的「最大线程数」） */
 const val DEFAULT_DOWNLOAD_THREADS = 64
+
+/**
+ * 当前生效的最大下载线程数（设置 → 下载 → 最大线程数）。
+ *
+ * 下载器在构造时读一次，所以改完设置**下一次下载**就生效，不需要重启。
+ * 限制在 1..128：[AllSettings.downloadThreads] 本身有范围，这里再钳一次是防止
+ * 设置文件被外部改坏（例如写进 0）导致信号量永远拿不到许可、下载直接卡死。
+ */
+val currentDownloadThreads: Int
+    get() = AllSettings.downloadThreads.getValue().coerceIn(1, 128)
 
 /**
  * Minecraft 安装器：装配版本 JSON、client jar、assets 与 libraries 的下载任务，
@@ -55,7 +66,7 @@ class MinecraftDownloader(
     private val onCompletion: suspend (Task) -> Unit = {},
     private val onError: (message: String) -> Unit = {},
     private val onThrowable: ((throwable: Throwable) -> Unit)? = null,
-    private val maxDownloadThreads: Int = DEFAULT_DOWNLOAD_THREADS
+    private val maxDownloadThreads: Int = currentDownloadThreads
 ) {
     private var allDownloadTasks = mutableListOf<DownloadTask>()
 

@@ -504,6 +504,15 @@ object AllSettings : SettingsRegistry() {
         MirrorSourceType.LEGACY_NAMES
     )
 
+    /**
+     * 下载的最大线程数（同时下载的文件数）。
+     *
+     * PCL2 的「设置 → 下载 → 最大线程数」对应项。默认 64 与旧版写死的
+     * [com.zalith.pcl.game.version.download.DEFAULT_DOWNLOAD_THREADS] 一致，行为不变；
+     * 网络差或存储慢时调小可以明显减少超时与失败重试。
+     */
+    val downloadThreads = intSetting("downloadThreads", 64, 1..128)
+
     //Control
     /**
      * 全局默认控制布局文件名

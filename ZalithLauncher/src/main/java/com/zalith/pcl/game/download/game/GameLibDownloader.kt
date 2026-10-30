@@ -21,7 +21,7 @@ package com.zalith.pcl.game.download.game
 import com.zalith.pcl.R
 import com.zalith.pcl.coroutine.Task
 import com.zalith.pcl.game.version.download.BaseMinecraftDownloader
-import com.zalith.pcl.game.version.download.DEFAULT_DOWNLOAD_THREADS
+import com.zalith.pcl.game.version.download.currentDownloadThreads
 import com.zalith.pcl.game.version.download.DownloadTask
 import com.zalith.pcl.game.version.download.parseTo
 import com.zalith.pcl.game.version.download.runBatchDownloads
@@ -38,7 +38,7 @@ import java.util.concurrent.ConcurrentLinkedQueue
 class GameLibDownloader(
     private val downloader: BaseMinecraftDownloader,
     private val gameJson: String,
-    private val maxDownloadThreads: Int = DEFAULT_DOWNLOAD_THREADS
+    private val maxDownloadThreads: Int = currentDownloadThreads
 ) {
     private val allDownloadTasks = ConcurrentLinkedQueue<DownloadTask>()
 
