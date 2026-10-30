@@ -21,7 +21,7 @@ import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.systemBarsIgnoringVisibility
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.ui.Modifier
 import com.zalith.pcl.game.plugin.PluginLoader
@@ -66,12 +66,21 @@ class Pcl2Activity : BaseAppCompatActivity() {
             PclMainScreen(
                 modifier = Modifier
                     .fillMaxSize()
-                    // 用**忽略可见性**的系统栏尺寸：
-                    // 手势导航下，手指碰到屏幕底部（那块「小白条」）会让导航条临时冒出来，
-                    // `WindowInsets.systemBars` 随之在「有 / 无」之间来回跳 —— 整页内容跟着
-                    // 上下抽动、重排一次，看上去就是「点一下小白条整个界面向下飘 + 闪一下」。
-                    // 忽略可见性后这层 padding 是个常数，系统栏临时显隐不再改变布局。
-                    .windowInsetsPadding(WindowInsets.systemBarsIgnoringVisibility),
+                    // 只避让**挖孔**（横屏时一般在侧边），不再管状态栏 / 导航栏。
+                    //
+                    // 这里踩过两个坑，正好是同一个 modifier 的两端：
+                    //   · `WindowInsets.systemBars` —— 手势导航下手指碰到屏幕底部，
+                    //     那条小白条会临时冒出来，insets 随之在「有 / 无」之间跳，
+                    //     整页内容跟着上下抽动重排，表现为「点一下小白条画面往下飘 + 闪一下」。
+                    //   · `systemBarsIgnoringVisibility` —— 治好了抽动，但它的语义是
+                    //     「**不管系统栏可不可见，都按它的尺寸算**」。而主题里
+                    //     `android:windowFullscreen=true` 早就把系统栏隐藏了，于是这条
+                    //     padding 永远存在：内容区上下各被削掉一条，那块区域没人画背景，
+                    //     露出 Activity 的窗口底色 —— 浅色主题下是浅灰、**深色主题下就是黑边**，
+                    //     看起来就是「界面上下没铺满」。
+                    //
+                    // 全屏窗口本来就不需要给系统栏让位，真正该躲的只有挖孔。
+                    .windowInsetsPadding(WindowInsets.displayCutout),
             )
         }
     }
