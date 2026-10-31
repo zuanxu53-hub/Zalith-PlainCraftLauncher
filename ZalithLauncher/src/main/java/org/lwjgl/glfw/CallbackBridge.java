@@ -161,12 +161,50 @@ public class CallbackBridge {
         putMouseEvent(button);
     }
 
+    // 每次点击必须完整走完「按下 → 下一帧松开」。连续快速点击时，如果第二下按下
+    // 在上一轮松开之前到达，游戏会收到 down/down/up/up，第二下就被吞掉。
+    // 这里按鼠标键维护队列：同一按钮的点击串行执行，不丢点击，也不交叉。
+    private static final java.util.Set<Integer> sTapInFlight = new java.util.HashSet<>();
+    private static final java.util.Map<Integer, Integer> sPendingTaps = new java.util.HashMap<>();
+
     public static void putMouseEvent(int button) {
-        putMouseEvent(button, true);
-        postFrameCallbackDelayed(l -> putMouseEvent(button, false), 33);
+        synchronized (CallbackBridge.class) {
+            if (sTapInFlight.contains(button)) {
+                sPendingTaps.merge(button, 1, Integer::sum);
+                return;
+            }
+            sTapInFlight.add(button);
+        }
+        sendTap(button);
     }
-    
+
+    private static void sendTap(int button) {
+        sendMouseKeycode(button, CallbackBridge.getCurrentMods(), true);
+        postFrameCallbackDelayed(l -> {
+            sendMouseKeycode(button, CallbackBridge.getCurrentMods(), false);
+            boolean next;
+            synchronized (CallbackBridge.class) {
+                int pending = sPendingTaps.getOrDefault(button, 0);
+                if (pending > 0) {
+                    if (pending == 1) sPendingTaps.remove(button);
+                    else sPendingTaps.put(button, pending - 1);
+                    next = true;
+                } else {
+                    sTapInFlight.remove(button);
+                    next = false;
+                }
+            }
+            if (next) sendTap(button);
+        }, 33);
+    }
+
     public static void putMouseEvent(int button, boolean isDown) {
+        // 长按 / 显式按下时取消排队中的短按，避免长按与队列点击互相踩
+        if (isDown) {
+            synchronized (CallbackBridge.class) {
+                sPendingTaps.remove(button);
+            }
+        }
         sendMouseKeycode(button, CallbackBridge.getCurrentMods(), isDown);
     }
 

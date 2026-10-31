@@ -1043,7 +1043,7 @@ private fun MouseControlLayout(
             onMouse = onMouseMoved,
             gamepadViewModel = gamepadViewModel,
             onTap = { position ->
-                val gamePosition = currentGameDisplayLayout(screenSize).mapToGame(position)
+                val gamePosition = position.toGameWindowPosition(screenSize)
                 CallbackBridge.putMouseEventWithCoords(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_LEFT.toInt(), gamePosition.x, gamePosition.y)
             },
             onCapturedTap = {
@@ -1094,7 +1094,16 @@ private fun MouseControlLayout(
     }
 }
 
+/** 触控层坐标 → GLFW 实际窗口坐标（窗口尺寸由 native 回传）。 */
+private fun Offset.toGameWindowPosition(screenSize: IntSize): Offset {
+    return currentGameDisplayLayout(screenSize).mapToWindow(
+        position = this,
+        windowWidth = CallbackBridge.windowWidth,
+        windowHeight = CallbackBridge.windowHeight,
+    )
+}
+
 private fun Offset.sendPosition(screenSize: IntSize) {
-    val gamePosition = currentGameDisplayLayout(screenSize).mapToGame(this)
+    val gamePosition = toGameWindowPosition(screenSize)
     CallbackBridge.sendCursorPos(gamePosition.x, gamePosition.y)
 }

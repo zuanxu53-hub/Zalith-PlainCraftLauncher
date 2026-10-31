@@ -58,11 +58,22 @@ data class GameDisplayLayout(
      * 将全屏布局坐标换算为游戏渲染坐标
      */
     fun mapToGame(position: Offset): Offset {
-        // GLFW 的鼠标坐标是「窗口/显示区域」坐标，不是帧缓冲的渲染分辨率。
-        // 之前乘了 renderSize / displaySize：自定义分辨率开 150% 时指针会被放大 1.5 倍，
-        // 越往右下偏得越多，物品栏和背包根本点不到。这里只去掉黑边偏移并夹在显示区域内。
-        val x = (position.x - offset.x).coerceIn(0f, (displaySize.width - 1).coerceAtLeast(0).toFloat())
-        val y = (position.y - offset.y).coerceIn(0f, (displaySize.height - 1).coerceAtLeast(0).toFloat())
+        return mapToWindow(position, displaySize.width, displaySize.height)
+    }
+
+    /**
+     * 把全屏触控坐标映射到 **GLFW 实际窗口坐标**。
+     *
+     * 触控层用的是 Compose 的屏幕尺寸，而游戏窗口可能是 1998×896 这类被系统/缩放
+     * 调整过的尺寸；两者直接混用会整体偏移，越靠边越明显。这里按窗口宽高等比换算。
+     */
+    fun mapToWindow(position: Offset, windowWidth: Int, windowHeight: Int): Offset {
+        val targetW = windowWidth.takeIf { it > 0 } ?: displaySize.width
+        val targetH = windowHeight.takeIf { it > 0 } ?: displaySize.height
+        val x = ((position.x - offset.x) / displaySize.width.toFloat() * targetW)
+            .coerceIn(0f, (targetW - 1).coerceAtLeast(0).toFloat())
+        val y = ((position.y - offset.y) / displaySize.height.toFloat() * targetH)
+            .coerceIn(0f, (targetH - 1).coerceAtLeast(0).toFloat())
         return Offset(x, y)
     }
 }

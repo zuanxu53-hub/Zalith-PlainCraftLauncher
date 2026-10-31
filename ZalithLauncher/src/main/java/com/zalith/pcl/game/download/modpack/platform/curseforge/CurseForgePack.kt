@@ -46,6 +46,9 @@ private const val TAG = "CurseForgePack"
  * CurseForge 整合包安装信息
  * @param manifest CurseForge 整合包清单
  */
+/** projectID → 目标目录名；空串表示查询失败、退回 mods（CHM 不允许 null）。 */
+private val projectFolderCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+
 class CurseForgePack(
     root: File,
     private val manifest: CurseForgeManifest
@@ -78,27 +81,39 @@ class CurseForgePack(
                                     fileID = manifestFile.fileID.toString()
                                 )
                             }.data
-                            val url = version.fixedFileUrl() ?: throw IOException("Can't get the file url")
                             val fileName = version.fileName ?: throw IOException("Can't get the file name")
-
-                            //获取项目
-                            val project = mirroredPlatformSearcher(
-                                searchers = mirroredCurseForgeSource()
-                            ) { searcher ->
-                                searcher.getProject(
-                                    projectID = manifestFile.projectID.toString()
+                            // 文件 API 给了 URL 就用；没给时按 CurseForge CDN 规则补一条，
+                            // 不要因为 fixedFileUrl() 为空就把整个模组判死。
+                            val url: List<String> = version.fixedFileUrl()?.let { listOf(it) }
+                                ?: listOf(
+                                    "https://edge.forgecdn.net/files/" +
+                                        "${manifestFile.fileID / 1000}/${manifestFile.fileID % 1000}/$fileName"
                                 )
-                            }.data
-                            //通过项目类型指定目标下载目录
-                            val folder = project.getPlatformClassesOrNull()
-                                ?.versionFolder?.folderName
-                                ?.let { folderName ->
-                                    File(targetFolder, folderName)
-                                } ?: modsFolder
+
+                            // 项目类型只影响放到 mods/ 还是 resourcepacks/。
+                            // 项目查询失败（限流、作者删项目）时退回 mods/，文件本身还能下。
+                            val projectID = manifestFile.projectID.toString()
+                            val cachedFolder = projectFolderCache[projectID]
+                            val folderName = if (cachedFolder != null) {
+                                cachedFolder.ifBlank { null }
+                            } else {
+                                val project = runCatching {
+                                    mirroredPlatformSearcher(
+                                        searchers = mirroredCurseForgeSource()
+                                    ) { searcher ->
+                                        searcher.getProject(projectID = projectID)
+                                    }.data
+                                }.getOrNull()
+                                val name = project?.getPlatformClassesOrNull()
+                                    ?.versionFolder?.folderName
+                                projectFolderCache[projectID] = name ?: ""
+                                name
+                            }
+                            val folder = folderName?.let { File(targetFolder, it) } ?: modsFolder
 
                             ModFile(
                                 outputFile = File(folder, fileName),
-                                downloadUrls = url.mapMCIMMirrorUrls(),
+                                downloadUrls = url.flatMap { it.mapMCIMMirrorUrls() },
                                 sha1 = version.getSHA1()
                             )
                         }.onFailure { e ->

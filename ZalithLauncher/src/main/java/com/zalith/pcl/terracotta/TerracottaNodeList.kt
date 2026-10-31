@@ -74,9 +74,16 @@ suspend fun fetchNodes(): List<URI> {
             // 使用自定义的 EasyTier 服务器节点
             val url = AllSettings.terracottaNodes.getValue()
             if (url.isNotEmptyOrBlank()) {
-                val tempList = listOf(URI(url))
-                nodeList = tempList
-                return tempList
+                val custom = sanitizeNode(URI(url))
+                if (custom != null) {
+                    val tempList = listOf(custom)
+                    nodeList = tempList
+                    return tempList
+                }
+                Logger.warning(TAG, "Ignoring invalid custom Terracotta node: $url")
+                // 自定义节点不是 tcp:// / udp:// / https:// 这类绝对地址时，
+                // 继续走默认节点。以前这里会把 "U/XXXX-..." 这种房间码原样交给
+                // EasyTier，配置里出现 uri = "U/..."，直接 TOML 报 relative URL 崩溃。
             }
             // 为空则继续使用默认的节点逻辑
         }
@@ -124,12 +131,27 @@ private fun parseNode(
             return null
         }
 
-        URI.create(node.url)
+        sanitizeNode(URI.create(node.url))
 
     } catch (e: Exception) {
         Logger.warning(TAG, "Invalid terracotta node: $node", e)
         null
     }
+}
+
+/**
+ * 只接受 EasyTier 能识别的绝对节点地址。
+ *
+ * `URI("U/XXXX-...")` 是合法 URI，但属于**相对**地址；传给 EasyTier 后会被写进
+ * `[[peer]] uri = "U/..."`，TOML 直接报 `relative URL without a base` 并崩掉。
+ */
+private fun sanitizeNode(uri: URI): URI? {
+    val scheme = uri.scheme?.lowercase() ?: return null
+    if (!uri.isAbsolute) return null
+    val allowed = setOf("tcp", "udp", "ws", "wss", "http", "https", "wg")
+    if (scheme !in allowed) return null
+    if (uri.host.isNullOrBlank()) return null
+    return uri
 }
 
 private fun shouldUseNode(

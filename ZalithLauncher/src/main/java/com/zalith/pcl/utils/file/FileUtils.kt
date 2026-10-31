@@ -271,7 +271,11 @@ fun ZipEntry.readText(
  * @throws IllegalArgumentException 如果路径不存在或参数无效
  * @throws SecurityException 如果检测到路径穿越攻击
  */
-suspend fun ZipFile.extractFromZip(internalPath: String, outputDir: File) {
+suspend fun ZipFile.extractFromZip(
+    internalPath: String,
+    outputDir: File,
+    onProgress: ((Float) -> Unit)? = null,
+) {
     val e = entries()
     val iterator = object : Iterator<JavaZipEntryAdapter> {
         override fun hasNext(): Boolean = e.hasMoreElements()
@@ -283,7 +287,9 @@ suspend fun ZipFile.extractFromZip(internalPath: String, outputDir: File) {
         entriesIter = iterator,
         inputStreamProvider = { entry -> getInputStream(entry.entry) },
         internalPath = internalPath,
-        outputDir = outputDir
+        outputDir = outputDir,
+        totalEntries = runCatching { size() }.getOrDefault(-1),
+        onProgress = onProgress,
     )
 }
 
@@ -294,7 +300,11 @@ suspend fun ZipFile.extractFromZip(internalPath: String, outputDir: File) {
  * @throws IllegalArgumentException 如果路径不存在或参数无效
  * @throws SecurityException 如果检测到路径穿越攻击
  */
-suspend fun CompressZipFile.extractFromZip(internalPath: String, outputDir: File) {
+suspend fun CompressZipFile.extractFromZip(
+    internalPath: String,
+    outputDir: File,
+    onProgress: ((Float) -> Unit)? = null,
+) {
     val entriesEnum = entries
     val iterator = object : Iterator<CompressZipEntryAdapter> {
         private val it = entriesEnum.iterator()
@@ -307,7 +317,9 @@ suspend fun CompressZipFile.extractFromZip(internalPath: String, outputDir: File
         entriesIter = iterator,
         inputStreamProvider = { entry -> getInputStream(entry.entry) },
         internalPath = internalPath,
-        outputDir = outputDir
+        outputDir = outputDir,
+        totalEntries = -1,
+        onProgress = onProgress,
     )
 }
 
@@ -318,7 +330,9 @@ private suspend fun <T : ZipEntryBase> extractZipEntries(
     entriesIter: Iterator<T>,
     inputStreamProvider: (T) -> InputStream,
     internalPath: String,
-    outputDir: File
+    outputDir: File,
+    totalEntries: Int = -1,
+    onProgress: ((Float) -> Unit)? = null,
 ) {
     require(outputDir.isDirectory || outputDir.mkdirs()) {
         "Output directory does not exist and cannot be created: $outputDir"
@@ -335,10 +349,19 @@ private suspend fun <T : ZipEntryBase> extractZipEntries(
     val createdDirs = HashSet<String>()
 
     withContext(Dispatchers.IO) {
+        var processed = 0
+        var lastPercent = -1
+
         while (entriesIter.hasNext()) {
             ensureActive()
 
             val entry = entriesIter.next()
+            processed++
+            val percent = if (totalEntries > 0) processed * 100 / totalEntries else -1
+            if (onProgress != null && percent >= 0 && percent != lastPercent) {
+                lastPercent = percent
+                onProgress(percent / 100f)
+            }
             val name = entry.name
 
             //忽略非目标目录
@@ -489,17 +512,24 @@ suspend fun copyDirectoryContents(
         return@withContext
     }
 
+    var lastPercent = -1
     allFiles.forEachIndexed { index, file ->
         ensureActive()
         val targetFile = File(normalizedTo, file.relativeTo(normalizedFrom).path)
         try {
             targetFile.ensureParentDirectory()
-            file.copyTo(targetFile, overwrite = true)
-            Logger.info(TAG, "copied: ${file.path} -> ${targetFile.path}")
+            // 256KB 缓冲：整合包里几千个小文件时减少 read/write 次数。
+            file.copyTo(targetFile, overwrite = true, bufferSize = 256 * 1024)
         } catch (e: IOException) {
             Logger.error(TAG, "Failed to copy: ${file.path} -> ${targetFile.path}", e)
         }
-        onProgress?.invoke((index + 1).toFloat() / fileCount)
+        // 逐文件回调会让 Compose 每秒刷新上千次，反而拖慢复制。
+        // 每 1% 推一次，最后一件文件务必推 100%。
+        val percent = (index + 1) * 100 / fileCount
+        if (percent != lastPercent || index == allFiles.lastIndex) {
+            lastPercent = percent
+            onProgress?.invoke(percent / 100f)
+        }
     }
 }
 

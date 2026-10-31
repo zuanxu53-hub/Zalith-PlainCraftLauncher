@@ -111,6 +111,16 @@ class SplashActivity : BaseAppCompatActivity() {
 
     private val backStackViewModel: SplashBackStackViewModel by viewModels()
 
+    /** 用 startActivityForResult 等安装器真正返回，避免 onResume 被误触发后盖掉安装页。 */
+    private val installerLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) {
+        if (launchAfterMobileGlues) {
+            launchAfterMobileGlues = false
+            launchMain()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
@@ -552,15 +562,13 @@ class SplashActivity : BaseAppCompatActivity() {
 
         runCatching {
             val uri = FileProvider.getUriForFile(this, "$packageName.provider", file)
-            startActivity(
+            pendingMobileGluesApk = null
+            installerLauncher.launch(
                 Intent(Intent.ACTION_VIEW).apply {
                     setDataAndType(uri, "application/vnd.android.package-archive")
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
             )
-            pendingMobileGluesApk = null
-            // 不能立刻 launchMain()：那会把刚拉起的系统安装页盖掉，
-            // 用户看到的就是「下载成功后没自动安装」。等从安装器返回再走 onResume。
         }.onFailure { e ->
             Logger.warning(TAG, "无法调起 MobileGlues 安装器", e)
             Toast.makeText(
@@ -584,11 +592,7 @@ class SplashActivity : BaseAppCompatActivity() {
             }
             return
         }
-        // 从系统安装器返回（无论装没装）才进入主界面
-        if (launchAfterMobileGlues) {
-            launchAfterMobileGlues = false
-            launchMain()
-        }
+        // 安装器返回由 installerLauncher 处理；onResume 只负责授权页回来后的续装。
     }
 
     private fun openMobileGluesPage() {

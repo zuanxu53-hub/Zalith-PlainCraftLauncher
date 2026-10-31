@@ -156,14 +156,18 @@ class ModpackImporter(
                     //尝试解压压缩包
                     try {
                         JDKZipFile(installerFile).use { zip ->
-                            zip.extractFromZip("", packDir)
+                            zip.extractFromZip("", packDir) { progress ->
+                                task.updateProgress(progress)
+                            }
                         }
                     } catch (e: Exception) {
                         if (e is CancellationException) throw e
                         Logger.warning(TAG, "JDK ZipFile failed to unpack, fallback to Apache ZipFile.", e)
                         try {
                             ApacheZipFile.builder().setFile(installerFile).get().use { zip ->
-                                zip.extractFromZip("", packDir)
+                                zip.extractFromZip("", packDir) { progress ->
+                                    task.updateProgress(progress)
+                                }
                             }
                         } catch (e: Exception) {
                             if (e is CancellationException) throw e
