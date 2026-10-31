@@ -102,7 +102,6 @@ import com.zalith.pcl.ui.pcl2.data.PclBackgroundSuit
 import com.zalith.pcl.ui.pcl2.data.PclHomeType
 import com.zalith.pcl.ui.pcl2.data.PclSettings
 import com.zalith.pcl.ui.pcl2.pages.pclInstanceVersionPage
-import com.zalith.pcl.ui.pcl2.pages.PclThemeSection
 import com.zalith.pcl.ui.pcl2.theme.PclDimens
 import com.zalith.pcl.ui.pcl2.theme.pclPalette
 import com.zalith.pcl.utils.animation.TransitionAnimationType
@@ -794,10 +793,6 @@ fun PclSetupUiPage() {
     }
 
     PclContent {
-        // ---- 主题（PCL `PageSetupUI.xaml` 的 CardTheme）
-        // 实现在 PclThemeSection.kt：正式版是独立卡片「连点 35 次 + 密码解锁」，开发版是空函数。
-        PclThemeSection()
-
         // ---- 基础（PCL `PageSetupUI.xaml:16` 的 CardLauncher，Title 是 `LangSetTheme` =「基础」）
         PclCard(modifier = Modifier.fillMaxWidth(), title = "基础") {
             Column {
