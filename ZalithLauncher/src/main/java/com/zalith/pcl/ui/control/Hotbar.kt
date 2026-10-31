@@ -40,7 +40,6 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -211,7 +210,6 @@ fun BoxScope.MinecraftHotbar(
                     .mainTouchLogic(
                         slotCount = hotbarList.size,
                         hotbarSize = hotbarSize,
-                        density = density,
                         longClickDelay = AllSettings.hotbarLongClickDelay.state.toLong(),
                         onClick = { index ->
                             val keycode = calculateSlotKeycode(index)
@@ -263,7 +261,6 @@ private data class DownSlot(
 private fun Modifier.mainTouchLogic(
     slotCount: Int,
     hotbarSize: DpSize,
-    density: Density,
     longClickDelay: Long,
     enableDoubleClick: Boolean,
     enableLongClick: Boolean,
@@ -273,10 +270,14 @@ private fun Modifier.mainTouchLogic(
     onOccupiedPointer: (PointerId) -> Unit,
     onReleasePointer: (PointerId) -> Unit
 ): Modifier = this.pointerInput(
-    slotCount, hotbarSize, density, longClickDelay, enableDoubleClick, enableLongClick
+    slotCount, hotbarSize, longClickDelay, enableDoubleClick, enableLongClick
 ) {
     val touchSlop = viewConfiguration.touchSlop
     val doubleTapTimeout = viewConfiguration.doubleTapTimeoutMillis
+    // 用触控层**实际布局后的像素宽度**，而不是 Dp 换算回来的宽度。
+    // 调过快捷栏宽度后，两者会因密度换算和布局圆整差几个像素，槽位边界随之偏移，
+    // 表现就是「看着点在 4 号槽，实际切到 3/5 号」。
+    val hitWidth = size.width.toFloat()
 
     val states = mutableMapOf<PointerId, PointerState>()
     val occupiedPointers = mutableSetOf<PointerId>()
@@ -301,7 +302,7 @@ private fun Modifier.mainTouchLogic(
                             }
 
                             val x = change.position.x
-                            val slotIndex = calculateSlotIndex(x, hotbarSize, slotCount, density)
+                            val slotIndex = calculateSlotIndex(x, hitWidth, slotCount)
                             //碰到就视为点击，避免后续逻辑临时切物品栏导致游戏状态不同步
                             onClick(slotIndex)
 
@@ -335,7 +336,7 @@ private fun Modifier.mainTouchLogic(
                         change.pressed && change.previousPressed -> {
                             val state = states[pointerId] ?: return@forEach
                             //滑动时实时计算并更新当前槽位
-                            state.currentSlotIndex = calculateSlotIndex(change.position.x, hotbarSize, slotCount, density)
+                            state.currentSlotIndex = calculateSlotIndex(change.position.x, hitWidth, slotCount)
 
                             if (enableLongClick) {
                                 val distance = (change.position - state.initialPosition).getDistance()
@@ -411,11 +412,10 @@ private fun getMCGuiScale(width: Int, height: Int): Int {
 
 private fun calculateSlotIndex(
     x: Float,
-    hotbarSize: DpSize,
+    totalWidth: Float,
     slotCount: Int,
-    density: Density
 ): Int {
-    val totalWidth = with(density) { hotbarSize.width.toPx() }
+    if (totalWidth <= 0f || slotCount <= 0) return 0
     val slotWidth = totalWidth / slotCount
     return (x / slotWidth).toInt().coerceIn(0, slotCount - 1)
 }

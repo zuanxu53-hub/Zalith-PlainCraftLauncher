@@ -191,6 +191,32 @@ object ControlManager {
     }
 
     /**
+     * 确保控制布局目录里至少有一份可读布局，并返回它。
+     *
+     * 游戏内「编辑布局」必须有具体文件才能保存。PCL2 界面冷启动时不会经过
+     * `MainActivity.onResume`，而那里原本是唯一会自动解压默认布局的地方；
+     * 一旦用户没进过布局设置页，目录就是空的，`currentControlFile` 也为 null。
+     */
+    suspend fun ensureDefaultControl(context: Context): File? = withContext(Dispatchers.IO) {
+        val dir = PathManager.DIR_CONTROL_LAYOUTS
+        if (!dir.exists() && !dir.mkdirs()) {
+            Logger.warning(TAG, "Failed to create control layout directory: ${dir.absolutePath}")
+            return@withContext null
+        }
+        dir.listFiles()
+            ?.firstOrNull { it.isFile && it.extension.equals("json", true) }
+            ?.let { return@withContext it }
+
+        val file = getNewRandomFile()
+        runCatching {
+            context.copyAssetFile(fileName = "default_layout.json", output = file, overwrite = false)
+        }.onFailure { e ->
+            Logger.warning(TAG, "Failed to unpack default control layout", e)
+        }
+        file.takeIf { it.isFile && it.length() > 0 }
+    }
+
+    /**
      * 解压默认控制布局
      */
     private suspend fun unpackDefaultControl(

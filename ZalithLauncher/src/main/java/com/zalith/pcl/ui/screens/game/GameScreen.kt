@@ -77,6 +77,7 @@ import com.zalith.pcl.bridge.ZLBridgeStates
 import com.zalith.pcl.bridge.ZLNativeInvoker
 import com.zalith.pcl.game.input.LWJGLCharSender
 import com.zalith.pcl.game.keycodes.mapToKeycode
+import com.zalith.pcl.game.control.ControlManager
 import com.zalith.pcl.game.launch.handler.GameHandler
 import com.zalith.pcl.game.sdl.SdlBridge
 import com.zalith.pcl.game.sdl.SdlTextSender
@@ -360,10 +361,25 @@ private class GameViewModel(
     /**
      * 开始编辑控制布局模式
      */
-    fun startControlEditor(editorVM: EditorViewModel) {
-        if (!isEditingLayout) {
+    fun startControlEditor(editorVM: EditorViewModel, context: android.content.Context) {
+        if (isEditingLayout) return
+        viewModelScope.launch(Dispatchers.Main) {
             clearState()
-            editorVM.initLayout(getLayout())
+            // 必须拿到一个真实文件：ControlEditor 保存时要用它。目录为空时先补默认布局。
+            val file = currentControlFile?.takeIf { it.isFile }
+                ?: version.getControlPath()?.takeIf { it.isFile }
+                ?: ControlManager.ensureDefaultControl(context)
+            if (file == null) {
+                android.widget.Toast.makeText(
+                    context,
+                    "没有可用的控制布局文件，无法编辑。请先在设置中重新导入默认布局。",
+                    android.widget.Toast.LENGTH_LONG,
+                ).show()
+                return@launch
+            }
+            currentControlFile = file
+            val layout = withContext(Dispatchers.IO) { getLayout(file) }
+            editorVM.initLayout(layout)
             isEditingLayout = true
         }
     }
@@ -767,7 +783,8 @@ fun GameScreen(
             onReplacementControl = { viewModel.replacementControlState = ReplacementControlState.Show },
             onEditLayout = {
                 viewModel.startControlEditor(
-                    editorVM = editorViewModel
+                    editorVM = editorViewModel,
+                    context = context,
                 )
             },
             onShowToast = { text, duration ->

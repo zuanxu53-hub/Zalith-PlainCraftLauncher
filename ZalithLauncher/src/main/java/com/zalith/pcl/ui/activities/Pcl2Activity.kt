@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import com.zalith.pcl.components.jre.RuntimeProvisioner
+import com.zalith.pcl.game.control.ControlManager
 import com.zalith.pcl.game.plugin.PluginLoader
 import com.zalith.pcl.game.renderer.Renderers
 import com.zalith.pcl.ui.base.BaseAppCompatActivity
@@ -64,6 +65,10 @@ class Pcl2Activity : BaseAppCompatActivity() {
         // 表现为「本次运行里新建的账号看得见，退出应用再进来全没了」
         // （新建时 `suspendSaveAccount` 会顺手 reload 一次，重启后就没人 reload 了）。
         refreshData()
+        // 控制布局：PCL2 界面冷启动不会经过 MainActivity.onResume，而那是原来唯一
+        // 自动解压默认布局的地方。缺少默认布局会让游戏内「编辑布局」没有文件可写，
+        // 点下去编辑器直接空屏。
+        ControlManager.checkDefaultAndRefresh(this)
         // ---- 每次打开启动器都自检 Java 运行库 ----------------------------------
         // 某些机型首次安装时会出岔子：解压页被打断（存储不足、进程被杀、用户直接退出），
         // 或者内置包和本机架构对不上（例如 JRE 25 没有 x86 的 bin-x86.tar.xz），
