@@ -1,7 +1,7 @@
 {
-  "code": 200053,
-  "version": "1.3.5",
-  "created_at": "2026-10-31T03:00:00Z",
+  "code": 200054,
+  "version": "1.3.6",
+  "created_at": "2026-10-31T08:44:35Z",
   "default_cloud_drive": {
     "language": "NULL",
     "link": "https://github.com/zuanxu53-hub/Zalith-PlainCraftLauncher/releases",
@@ -17,16 +17,16 @@
   "files": [],
   "default_body": {
     "language": "NULL",
-    "markdown": "这是 **Zalith-Plain Craft Launcher** 的 1.3.5 版本。"
+    "markdown": "这是 **Zalith-Plain Craft Launcher** 的 1.3.6 版本。\n\n- 版本号：1.3.6\n\n### 新增\n\n- **主页快速进入服务器**：默认主页新增服务器卡片，直接读取当前实例 `servers.dat`，点一下就能带 `--quickPlayMultiplayer` 启动并进入服务器。\n- **摇杆前进锁开关**：设置 → 控制设置里可自行开关。默认关闭，松手一定回中，不再误触后一直往前走。\n- **MobileGlues 安装引导**：首次启动会询问是否安装，选“安装”后加入“需要安装的内容”列表，随依赖一起从 GitHub 下载并调起安装器；支持 64 线程分段下载和百分比进度。\n\n### 修复\n\n- **分享整合包报 Permission Denial**：QQ / 微信 / MT 管理器的临时 URI 现在会先复制到启动器缓存再导入，不再因授权过期失败。\n- **游戏内鼠标偏移**：鼠标坐标改为按游戏窗口显示区域映射，不再乘渲染分辨率比例，物品栏和背包可以正常点击。\n- **下载自定义文件卡住**：任务超时/中断后会正常收尾；能探测到文件大小时显示真实百分比。\n- **MobileGlues 下载完成后安装页被主界面盖住**：安装器拉起后会停在启动页，返回后再进入主界面。\n- **整合包解压偏慢**：解压缓冲从 8 KB 提升到 64 KB，减少小文件读写次数。\n\n### 升级\n\n包名不变（`com.zalith.pcl`），可直接覆盖安装 1.3.5 / 1.3.x / 1.2.x；仍然不能覆盖 1.1。"
   },
   "bodies": [
     {
       "language": "zh",
-      "markdown": "这是 **Zalith-Plain Craft Launcher** 的 1.3.5 版本。\n\n- 版本号：1.3.5\n\n### 修复\n\n- **微软正版登录完成后白屏、无法退出**：微软设备码页面在内嵌 WebView 中授权后经常停在白屏，刷新还会提示“我们无法满足你的需求”。现在优先交给系统浏览器完成验证（验证码自动复制），授权后直接回到启动器等待结果；关闭内置页面也不再被误判成“取消登录”。\n- **`.mrpack` 整合包无法导入**：文件选择器以前只筛选 `application/zip`，而 `.mrpack` 通常被识别成 `application/octet-stream`，所以列表里根本看不到。现在可以直接选择 `.mrpack`，不再需要改成 `.zip`。\n- **游戏内“编辑布局”后整屏消失**：没有布局文件时编辑器已经进入编辑态却无内容可画。现在先确保存在真实布局文件再进入编辑器，失败也只提示、不再空屏。\n- **部分设备首次安装没有默认控件布局**：默认布局以前只在传统主界面初始化，直接使用 PCL2 界面启动时会漏掉；现在 PCL2 启动时也会自动补齐。\n- **快捷栏宽度调整后点击切错槽位**：槽位判定改为使用触控层实际像素宽度，不再经过 Dp 换算，宽度调到多少就按多少命中。\n- **版本列表偶发“Version manifest is null after all attempts”**：不再把任意 HTTP 200 当成有效清单，逐个源校验内容并自动换源；下载失败时回退本地旧清单，不再直接报错。\n- **前置资源在同一个游戏版本下重复显示**：同一版本卡片里的必装前置现在合并去重，只显示一块。\n\n\n### 升级\n\n包名不变（`com.zalith.pcl`），可直接覆盖安装 1.3.4 / 1.3.x / 1.2.x；仍然不能覆盖 1.1。\n"
+      "markdown": "这是 **Zalith-Plain Craft Launcher** 的 1.3.6 版本。\n\n- 版本号：1.3.6\n\n### 新增\n\n- **主页快速进入服务器**：默认主页新增服务器卡片，直接读取当前实例 `servers.dat`，点一下就能带 `--quickPlayMultiplayer` 启动并进入服务器。\n- **摇杆前进锁开关**：设置 → 控制设置里可自行开关。默认关闭，松手一定回中，不再误触后一直往前走。\n- **MobileGlues 安装引导**：首次启动会询问是否安装，选“安装”后加入“需要安装的内容”列表，随依赖一起从 GitHub 下载并调起安装器；支持 64 线程分段下载和百分比进度。\n\n### 修复\n\n- **分享整合包报 Permission Denial**：QQ / 微信 / MT 管理器的临时 URI 现在会先复制到启动器缓存再导入，不再因授权过期失败。\n- **游戏内鼠标偏移**：鼠标坐标改为按游戏窗口显示区域映射，不再乘渲染分辨率比例，物品栏和背包可以正常点击。\n- **下载自定义文件卡住**：任务超时/中断后会正常收尾；能探测到文件大小时显示真实百分比。\n- **MobileGlues 下载完成后安装页被主界面盖住**：安装器拉起后会停在启动页，返回后再进入主界面。\n- **整合包解压偏慢**：解压缓冲从 8 KB 提升到 64 KB，减少小文件读写次数。\n\n### 升级\n\n包名不变（`com.zalith.pcl`），可直接覆盖安装 1.3.5 / 1.3.x / 1.2.x；仍然不能覆盖 1.1。"
     },
     {
       "language": "en",
-      "markdown": "This is **Zalith-Plain Craft Launcher** 1.3.5.\n\n- Version: 1.3.5\n\n### Fixes\n\n- **Microsoft login ending on a blank screen**: the device-code page often stalls in the embedded WebView after authorization, and refreshing it shows \"we cannot meet your request\". Verification now opens in the system browser (the code is copied automatically) and the launcher keeps waiting in the background; closing the in-app page no longer cancels the login.\n- **`.mrpack` modpacks could not be imported**: the picker only accepted `application/zip`, while `.mrpack` is usually reported as `application/octet-stream`. `.mrpack` can now be selected directly, no renaming required.\n- **In-game \"Edit layout\" making the screen go blank**: the editor entered edit mode without a layout file to save to. It now ensures a real layout file exists first and reports an error instead of blanking the screen.\n- **Some devices missing the default control layout after install**: initialisation only ran in the classic main screen. The PCL2 launcher now restores the default layout on startup too.\n- **Hotbar switching inaccurate after changing its width**: slot hit-testing now uses the actual pixel width of the touch layer instead of a Dp round-trip.\n- **Version list occasionally failing with \"Version manifest is null after all attempts\"**: responses are validated per source and fall back to the next one; a valid local cache is used when downloads fail.\n- **Required dependencies repeated under every file of the same game version**: they are merged and de-duplicated once per version card.\n\n\n### Upgrade\n\nThe package name is unchanged (`com.zalith.pcl`), so 1.3.4 / 1.3.x / 1.2.x can be updated in place. 1.1 still cannot.\n"
+      "markdown": "This is **Zalith-Plain Craft Launcher** 1.3.6.\n\n- Version: 1.3.6\n\n### New\n\n- **Quick server join on the home page**: the default home page now reads the current instance's `servers.dat` and can launch straight into a server with `--quickPlayMultiplayer`.\n- **Joystick forward-lock switch**: available under Settings → Controls. Off by default, so releasing the stick always recenters it instead of walking forever.\n- **MobileGlues setup prompt**: the first launch asks whether to install it; choosing Install adds it to the dependency list, downloads it from GitHub with 64-way segmented download and percentage progress, then opens the system installer.\n\n### Fixes\n\n- **Permission Denial when importing shared modpacks**: temporary URIs from QQ / WeChat / MT Manager are copied into the launcher cache first.\n- **In-game mouse offset**: cursor coordinates now map to the game window instead of being scaled by the render resolution, so the hotbar and inventory can be clicked.\n- **Custom file download getting stuck**: timed-out or interrupted tasks now finish cleanly, and a real percentage is shown when the size can be probed.\n- **MobileGlues installer covered by the main screen**: the launcher now waits on the splash screen until you return from the installer.\n- **Slower modpack extraction**: extraction buffers were raised from 8 KB to 64 KB.\n\n### Upgrade\n\nThe package name is unchanged (`com.zalith.pcl`), so 1.3.5 / 1.3.x / 1.2.x can be updated in place. 1.1 still cannot."
     }
   ]
 }
