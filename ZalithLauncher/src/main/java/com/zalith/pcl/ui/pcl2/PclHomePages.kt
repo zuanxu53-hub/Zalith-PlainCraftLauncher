@@ -165,6 +165,8 @@ import com.zalith.pcl.ui.pcl2.theme.pclPalette
 import com.zalith.pcl.ui.toAndroidString
 import com.zalith.pcl.utils.network.openLinkInternal
 import kotlin.math.roundToInt
+import com.zalith.pcl.game.version.multiplayer.AllServers
+import com.zalith.pcl.game.version.multiplayer.ServerData
 import java.io.File
 import com.zalith.pcl.ui.pcl2.theme.pclHairline
 
@@ -1922,6 +1924,23 @@ fun PclHomeRight(nav: PclNavController) {
     }
     val shownLines = (if (liveLog.isNotEmpty()) liveLog else fileLog).takeLast(HOME_LOG_LINES)
 
+    // 当前实例 servers.dat 里的服务器。和「版本设置 → 服务器」读的是同一份数据。
+    var servers by remember { mutableStateOf<List<ServerData>>(emptyList()) }
+    LaunchedEffect(version) {
+        val current = version
+        servers = withContext(Dispatchers.IO) {
+            if (current == null) {
+                emptyList()
+            } else {
+                runCatching {
+                    AllServers().also {
+                        it.loadServers(File(current.getGameDir(), "servers.dat"))
+                    }.serverList.toList()
+                }.getOrDefault(emptyList())
+            }
+        }
+    }
+
     PclContent {
         // PanHint（PCL 首页的固定提示条）
         var hintClosed by remember { mutableStateOf(false) }
@@ -1933,6 +1952,54 @@ fun PclHomeRight(nav: PclNavController) {
             )
             Spacer(Modifier.height(15.dp))
         }
+
+        // 快速进入服务器：读取当前实例的 servers.dat，点一行直接带 quickPlay 启动。
+        PclCard(modifier = Modifier.fillMaxWidth(), title = "快速进入服务器") {
+            Column {
+                if (version == null) {
+                    PclHint(
+                        text = "还没有选择游戏版本。先在左侧选择版本，这里会列出它已经添加的服务器。",
+                        theme = PclHintTheme.Blue,
+                    )
+                } else if (servers.isEmpty()) {
+                    PclHint(
+                        text = "这个实例还没有添加服务器。可以在「版本设置 → 服务器」里添加，" +
+                            "加好后这里会自动出现。",
+                        theme = PclHintTheme.Blue,
+                    )
+                } else {
+                    servers.forEachIndexed { index, server ->
+                        if (index > 0) {
+                            Spacer(Modifier.height(6.dp))
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { version?.let { runtime.playServer(it, server.originIp) } }
+                                .padding(vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                PclText(
+                                    text = server.name.ifBlank { server.originIp },
+                                    fontSize = 14,
+                                )
+                                PclText(
+                                    text = server.originIp,
+                                    color = p.gray2,
+                                    fontSize = 11,
+                                )
+                            }
+                            PclTextButton(
+                                text = "进入",
+                                onClick = { version?.let { runtime.playServer(it, server.originIp) } },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(15.dp))
 
         // PanCustom（自定义主页）
         // 「你知道吗」的内置文案已删除：只显示官网审核通过的文案，拉不到就整张卡不画。

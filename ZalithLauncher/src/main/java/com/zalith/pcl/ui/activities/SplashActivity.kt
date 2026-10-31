@@ -647,15 +647,17 @@ class SplashActivity : BaseAppCompatActivity() {
                     Intent.FLAG_ACTIVITY_SINGLE_TOP
 
             val importType = resolveImportType(source)
-            // QQ / 微信这类分享方给的是自己的 FileProvider URI，授权只在分享瞬间有效，
-            // 转到 Pcl2Activity 后经常已经读不到（「找不到布局文件」）。
-            // 布局文件很小，先在启动页复制到应用缓存，再把 file:// URI 往后传。
-            val forwardUri = if (
-                importType == IMPORT_TYPE_CONTROLS ||
+            // QQ / 微信 / MT 管理器分享的是对方 FileProvider 的临时 URI，
+            // 转发到 Pcl2Activity 后授权经常已经失效，整合包会直接报 Permission Denial。
+            // 所有分享文件都先落到启动器缓存，后面只读自己的 file:// URI。
+            val forceJson = importType == IMPORT_TYPE_CONTROLS ||
                 (importType == IMPORT_TYPE_AUTO &&
                     source.type?.contains("json", ignoreCase = true) == true)
-            ) {
-                cacheSharedFile(uri)
+            val forwardUri = if (uri.scheme == "content") {
+                if (importType == IMPORT_TYPE_MODPACK) {
+                    Toast.makeText(this@SplashActivity, "正在读取分享的整合包…", Toast.LENGTH_SHORT).show()
+                }
+                cacheSharedFile(uri, forceJson = forceJson)
             } else {
                 uri
             }
@@ -675,7 +677,7 @@ class SplashActivity : BaseAppCompatActivity() {
      * 分享方的 content URI 往往只带一次性读取授权；跨 Activity 后 provider 已经拒绝访问。
      * 复制失败时退回原 URI，至少保留原来的错误路径。
      */
-    private fun cacheSharedFile(uri: Uri): Uri {
+    private fun cacheSharedFile(uri: Uri, forceJson: Boolean = false): Uri {
         return runCatching {
             val name = runCatching {
                 contentResolver.query(uri, null, null, null, null)?.use { cursor ->
@@ -683,10 +685,16 @@ class SplashActivity : BaseAppCompatActivity() {
                     if (index >= 0 && cursor.moveToFirst()) cursor.getString(index) else null
                 }
             }.getOrNull()?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
-                ?: "shared_${System.currentTimeMillis()}.json"
+                ?: "shared_${System.currentTimeMillis()}"
 
             val safeName = name.replace(Regex("[^0-9A-Za-z._\\-\\u4e00-\\u9fa5]"), "_")
-                .let { if (it.endsWith(".json", true)) it else "$it.json" }
+                .let {
+                    when {
+                        forceJson && !it.endsWith(".json", true) -> "$it.json"
+                        !it.contains('.') -> "$it.zip"
+                        else -> it
+                    }
+                }
             val dir = File(cacheDir, "share_import").apply { mkdirs() }
             val target = File(dir, "${System.currentTimeMillis()}_$safeName")
             contentResolver.openInputStream(uri)?.use { input ->
