@@ -71,6 +71,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -467,6 +468,9 @@ class PclRuntime(
      */
     val modpackInstallLock: Mutex = Mutex()
 
+    /** 串行化离线账户的「查重 + 创建」，避免回车与失焦重复提交建出两个同名账户。 */
+    private val localAccountCreateLock: Mutex = Mutex()
+
     // ------------------------------------------------------------------ 下载源
 
     /** 当前的游戏内容下载源设置。 */
@@ -811,7 +815,13 @@ class PclRuntime(
 
     // ================================================================== 账户操作
 
-    /** 创建并切换到离线账户；[onCreated] 在账户落库并成为当前账户后回调。 */
+    /**
+     * 创建并切换到离线账户；[onCreated] 在账户落库并成为当前账户后回调。
+     *
+     * 名称框会在「回车」和「失焦」时各提交一次，两次几乎同时到达。以前两个协程都先看到
+     * 「还没有这个账户」，然后各自用随机 UUID 存了一条 —— 输入一次名字就多出两个账户。
+     * 这里用互斥锁串行化「查重 + 落库」，第二个调用会发现刚创建的账户并直接切换过去。
+     */
     fun createLocalAccount(userName: String, onCreated: () -> Unit = {}) {
         val name = userName.trim()
         if (name.isEmpty()) {
@@ -819,14 +829,25 @@ class PclRuntime(
             return
         }
         scope.launch {
-            val account = Account(
-                username = name,
-                accountType = com.zalith.pcl.game.account.AccountType.LOCAL.tag,
-            )
-            AccountsManager.suspendSaveAccount(account)
-            withContext(Dispatchers.Main) {
-                hint("已创建离线账户「$name」", PclHintTheme.Green)
-                onCreated()
+            localAccountCreateLock.withLock {
+                val existing = AccountsManager.accountsFlow.value.firstOrNull {
+                    it.isLocalAccount() && it.username.equals(name, ignoreCase = true)
+                }
+                if (existing != null) {
+                    AccountsManager.setCurrentAccount(existing)
+                    withContext(Dispatchers.Main) { onCreated() }
+                    return@withLock
+                }
+
+                val account = Account(
+                    username = name,
+                    accountType = com.zalith.pcl.game.account.AccountType.LOCAL.tag,
+                )
+                AccountsManager.suspendSaveAccount(account)
+                withContext(Dispatchers.Main) {
+                    hint("已创建离线账户「$name」", PclHintTheme.Green)
+                    onCreated()
+                }
             }
         }
     }
