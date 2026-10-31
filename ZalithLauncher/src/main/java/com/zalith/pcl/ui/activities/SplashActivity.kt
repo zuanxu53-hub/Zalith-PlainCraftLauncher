@@ -51,6 +51,7 @@ import com.zalith.pcl.components.jre.UnpackJreTask
 import com.zalith.pcl.game.download.engine.DownloadEngine
 import com.zalith.pcl.game.download.engine.DownloadRequest
 import com.zalith.pcl.game.download.engine.DownloadStats
+import com.zalith.pcl.game.download.engine.SegmentedDownloader
 import com.zalith.pcl.setting.AllSettings
 import com.zalith.pcl.ui.base.BaseAppCompatActivity
 import com.zalith.pcl.ui.pcl2.components.PclConfirmDialog
@@ -783,7 +784,7 @@ private class MobileGluesInstallTask(
                     }
                     updateMessage(
                         if (pct >= 0) {
-                            "正在下载 ${apkName ?: "MobileGlues.apk"}… $pct%（${done / 1048576} / ${apkSize / 1048576} MB）"
+                            "正在下载 ${apkName ?: "MobileGlues.apk"}… $pct%（${done / 1048576} / ${apkSize / 1048576} MB，64 线程）"
                         } else {
                             "正在下载 ${apkName ?: "MobileGlues.apk"}… ${done / 1048576} MB"
                         }
@@ -792,14 +793,27 @@ private class MobileGluesInstallTask(
                 }
             }
             try {
-                DownloadEngine.download(
-                    request = DownloadRequest(
-                        urls = listOf(url),
-                        targetFile = target,
-                        expectedSize = apkSize,
-                    ),
-                    stats = stats,
+                // GitHub 的 APK 只有十来 MB，默认最少 2 MB 一段、最多 8 段，速度上不去。
+                // 这里单独按 64 段下载；服务器不支持 Range 时自动回退到普通下载。
+                val segmented = apkSize > 0L && SegmentedDownloader.downloadOrNull(
+                    urls = listOf(url),
+                    targetFile = target,
+                    sha1 = null,
+                    expectedSize = apkSize,
+                    onBytes = { delta -> stats.addBytes(delta) },
+                    maxSegments = 64,
+                    minSegmentSize = 128L * 1024,
                 )
+                if (!segmented) {
+                    DownloadEngine.download(
+                        request = DownloadRequest(
+                            urls = listOf(url),
+                            targetFile = target,
+                            expectedSize = apkSize,
+                        ),
+                        stats = stats,
+                    )
+                }
             } finally {
                 progress.cancelAndJoin()
             }
