@@ -421,6 +421,8 @@ private fun PclMainContent(
         // 外部分享进来的整合包 / 键位：在这里接手，别让它们掉回原生界面。
         // 放在 providers 之后、窗体之前 —— 弹窗是独立 window，不参与下面的视觉变换。
         PclExternalImportHost(runtime)
+        // 首次启动检测 MobileGlues 渲染器插件；缺失时询问是否前往安装。
+        PclMobileGluesPromptHost()
         // 整合包安装前的「设置版本名称」询问框。挂在这里而不是某个页面里：
         // 下载页那条链是**下载完成后**才问的，此时用户可能已经切到别的版块了。
         PclNamePromptHost()

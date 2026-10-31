@@ -281,8 +281,10 @@ class ObservableJoystickData(data: JoystickData) : ObservableWidget() {
         )
         updateDirection(direction, eventHandler)
 
+        // 自动前进锁由启动器设置控制，默认关闭：推到上方再松手就永久前进太容易误触。
         val newCanLockState =
-            canLock &&
+            com.movtery.layer_controller.LayerControllerConfig.joystickForwardLockEnabled &&
+                    canLock &&
                     direction == JoystickDirection.North &&
                     lastDragPosition.y < -lockThresholdPx
 
@@ -399,18 +401,18 @@ class ObservableJoystickData(data: JoystickData) : ObservableWidget() {
                             val deadZoneRadius = bgRadius * deadZoneRatio
                             val lockThresholdPx = bgRadius * lockThreshold
 
-                            if (canLockState) {
+                            if (com.movtery.layer_controller.LayerControllerConfig.joystickForwardLockEnabled && canLockState) {
                                 isLocked = true
                                 canLockState = false
-                                val lockPosition = Offset(centerPoint.x, 0f)
                                 updateJoystickState(
-                                    position = lockPosition,
+                                    position = Offset(centerPoint.x, 0f),
                                     centerPoint = centerPoint,
                                     deadZoneRadius = deadZoneRadius,
                                     lockThresholdPx = lockThresholdPx,
                                     eventHandler = eventHandler
                                 )
                             } else {
+                                // 默认：松手一律回中并释放方向键，避免残留前进。
                                 canLockState = false
                                 isLocked = false
                                 updateJoystickState(

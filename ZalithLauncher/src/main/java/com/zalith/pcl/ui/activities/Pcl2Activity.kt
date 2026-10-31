@@ -14,11 +14,14 @@
 
 package com.zalith.pcl.ui.activities
 
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
+import android.view.KeyEvent
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.compose.setContent
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
@@ -31,6 +34,7 @@ import com.zalith.pcl.ui.pcl2.PclHintHost
 import com.zalith.pcl.ui.pcl2.PclMainScreen
 import com.zalith.pcl.ui.pcl2.components.PclHintTheme
 import com.zalith.pcl.ui.pcl2.data.PclImportBridge
+import com.zalith.pcl.viewmodel.EventViewModel
 import kotlinx.coroutines.launch
 
 /**
@@ -40,6 +44,10 @@ import kotlinx.coroutines.launch
  * 与 PCL2 的 850×500 桌面窗口比例最接近。
  */
 class Pcl2Activity : BaseAppCompatActivity() {
+
+    /** 与设置页 `viewModel()` 拿到的是同一个 Activity 作用域实例。 */
+    private val eventViewModel: EventViewModel by viewModels()
+    private var isCaptureKey = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -69,6 +77,17 @@ class Pcl2Activity : BaseAppCompatActivity() {
         // 自动解压默认布局的地方。缺少默认布局会让游戏内「编辑布局」没有文件可写，
         // 点下去编辑器直接空屏。
         ControlManager.checkDefaultAndRefresh(this)
+        // 实体键盘按键捕获：PCL2 之前没有接管 dispatchKeyEvent，设置页虽然发出了
+        // StartKeyCapture，Activity 却不会把硬件按键回传，界面永远停在「请按下按键」。
+        lifecycleScope.launch {
+            eventViewModel.events.collect { event ->
+                when (event) {
+                    is EventViewModel.Event.Key.StartKeyCapture -> isCaptureKey = true
+                    is EventViewModel.Event.Key.StopKeyCapture -> isCaptureKey = false
+                    else -> Unit
+                }
+            }
+        }
         // ---- 每次打开启动器都自检 Java 运行库 ----------------------------------
         // 某些机型首次安装时会出岔子：解压页被打断（存储不足、进程被杀、用户直接退出），
         // 或者内置包和本机架构对不上（例如 JRE 25 没有 x86 的 bin-x86.tar.xz），
@@ -142,6 +161,17 @@ class Pcl2Activity : BaseAppCompatActivity() {
         source.removeExtra(EXTRA_IMPORT_TYPE)
         if (uri == null) return
         PclImportBridge.submit(type, uri)
+    }
+
+    @SuppressLint("RestrictedApi")
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (isCaptureKey) {
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                eventViewModel.sendEvent(EventViewModel.Event.Key.OnKeyDown(event))
+            }
+            return true
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     override fun onBackPressed() {

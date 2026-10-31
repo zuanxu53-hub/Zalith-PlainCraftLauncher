@@ -373,9 +373,16 @@ private suspend fun <T : ZipEntryBase> extractZipEntries(
                 parent.mkdirs()
             }
 
-            inputStreamProvider(entry).source().use { source ->
-                targetFile.sink().buffer().use { sink ->
-                    sink.writeAll(source)
+            // 默认 8 KB 缓冲在整合包里几千个小文件上会反复触发系统调用；
+            // 这里用 64 KB 的普通流拷贝，少几次 read/write，内存占用也可控。
+            inputStreamProvider(entry).use { input ->
+                targetFile.outputStream().buffered(64 * 1024).use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read <= 0) break
+                        output.write(buffer, 0, read)
+                    }
                 }
             }
         }
@@ -407,9 +414,14 @@ fun ZipFile.extractEntryToFile(entry: ZipEntry, outputFile: File) {
 
     getInputStream(entry).use { input ->
         outputFile.outputStream().use { output ->
-            input.source().buffer().use { source ->
-                output.sink().buffer().use { sink ->
-                    sink.writeAll(source)
+            input.use { source ->
+                output.buffered(64 * 1024).use { sink ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        val read = source.read(buffer)
+                        if (read <= 0) break
+                        sink.write(buffer, 0, read)
+                    }
                     sink.flush()
                 }
             }

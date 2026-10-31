@@ -22,6 +22,8 @@
 package com.zalith.pcl.ui.pcl2.pages
 
 import android.graphics.BitmapFactory
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -151,6 +153,7 @@ internal fun PclInstanceSavesPage(version: Version) {
             )
         },
         deleteTitle = "删除存档",
+        importSaveZip = true,
     )
 }
 
@@ -185,6 +188,7 @@ internal fun PclInstanceResourcepackPage(version: Version) {
         accept = { !it.name.startsWith(".") },
         titleOf = { it.name.removeSuffix(".zip") },
         deleteTitle = "删除资源包",
+        importKind = PclSharedResourceKind.RESOURCE_PACK,
     )
 }
 
@@ -202,6 +206,7 @@ internal fun PclInstanceShaderPage(version: Version) {
         accept = { !it.name.startsWith(".") },
         titleOf = { it.name.removeSuffix(".zip") },
         deleteTitle = "删除光影包",
+        importKind = PclSharedResourceKind.SHADER,
     )
 }
 
@@ -236,6 +241,7 @@ internal fun PclInstanceSchematicPage(version: Version) {
         accept = { it.isFile && it.extension.lowercase() in PCL_SCHEMATIC_EXTENSIONS },
         titleOf = { it.nameWithoutExtension },
         deleteTitle = "删除原理图",
+        importKind = PclSharedResourceKind.SCHEMATIC,
         emptyStateOverride = if (projectionMod == false) {
             {
                 PclEmptyState(
@@ -437,6 +443,10 @@ private fun PclInstanceFilePage(
     downloadText: String? = null,
     downloadIndex: Int? = null,
     deleteTitle: String = "删除文件",
+    /** 非空时显示「从文件导入」，并按这个类型校验扩展名。 */
+    importKind: PclSharedResourceKind? = null,
+    /** 存档页：导入 zip 后解压成 `saves/<世界名>/`。 */
+    importSaveZip: Boolean = false,
 ) {
     val p = pclPalette
     val context = LocalContext.current
@@ -452,6 +462,26 @@ private fun PclInstanceFilePage(
     var loading by remember { mutableStateOf(true) }
     var token by remember { mutableIntStateOf(0) }
     var deleting by remember { mutableStateOf<File?>(null) }
+
+    // 从文件导入：直接选本机文件复制进当前实例对应目录，和「打开文件夹后手工拖进去」等价。
+    val canImport = importKind != null || importSaveZip
+    val importPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null || !canImport) return@rememberLauncherForActivityResult
+        scope.launch {
+            val result = if (importSaveZip) {
+                pclImportSaveZip(context, uri, dir)
+            } else {
+                pclImportSharedResource(context, uri, dir, importKind!!)
+                    .map { it.name }
+            }
+            result.onSuccess { name ->
+                PclHintHost.push("已导入「$name」。", PclHintTheme.Green)
+                token++
+            }.onFailure {
+                PclHintHost.push("导入失败：${it.message ?: it.javaClass.simpleName}", PclHintTheme.Red)
+            }
+        }
+    }
 
     LaunchedEffect(dir, token) {
         loading = true
@@ -508,10 +538,15 @@ private fun PclInstanceFilePage(
                     },
                     contentPadding = PaddingValues(start = 10.dp, top = 10.dp, end = 10.dp, bottom = 0.dp),
                     buttonsTopPadding = 20.dp,
-                    moreButtons = if (downloadIndex != null && downloadText != null) {
-                        listOf(PclEmptyButton("打开文件夹") { openFolder(context, dir) })
-                    } else {
-                        emptyList()
+                    moreButtons = buildList {
+                        if (canImport) {
+                            add(PclEmptyButton(if (importSaveZip) "导入存档" else "从文件导入") {
+                                importPicker.launch(arrayOf("*/*"))
+                            })
+                        }
+                        if (downloadIndex != null && downloadText != null) {
+                            add(PclEmptyButton("打开文件夹") { openFolder(context, dir) })
+                        }
                     },
                 )
             }
@@ -536,6 +571,11 @@ private fun PclInstanceFilePage(
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(15.dp)) {
                 PclManageButton("打开文件夹", highlight = true) { openFolder(context, dir) }
+                if (canImport) {
+                    PclManageButton(if (importSaveZip) "导入存档" else "从文件导入") {
+                        importPicker.launch(arrayOf("*/*"))
+                    }
+                }
                 PclManageButton("刷新") { token++ }
                 if (downloadIndex != null && downloadText != null) {
                     PclManageButton(downloadText) { nav.go(PclSection.Download, downloadIndex) }

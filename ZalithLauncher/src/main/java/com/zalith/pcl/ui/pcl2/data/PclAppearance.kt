@@ -61,10 +61,15 @@ enum class PclBackgroundSuit(val value: Int, val label: String) {
 
 /** `UiCustomType` 的四个取值。 */
 object PclHomeType {
+    /** 右侧真的什么都不画。 */
     const val EMPTY = 0
     const val LOCAL = 1
     const val ONLINE = 2
     const val PRESET = 3
+    /** PCL 默认首页：提示条 + 你知道吗 + 启动日志。 */
+    const val DEFAULT = 4
+
+    fun isValid(value: Int): Boolean = value in EMPTY..DEFAULT
 }
 
 object PclAppearance {
@@ -81,6 +86,7 @@ object PclAppearance {
     private const val KEY_MUSIC_STOP = "pcl2.ui.musicStop"
     private const val KEY_MUSIC_VOLUME = "pcl2.ui.musicVolume"
     private const val KEY_HOME_TYPE = "pcl2.ui.customType"
+    private const val KEY_HOME_TYPE_SPLIT = "pcl2.ui.customType.splitV2"
     private const val KEY_HOME_NET = "pcl2.ui.customNet"
     private const val KEY_HOME_PRESET = "pcl2.ui.customPreset"
     private const val KEY_HOME_LOCAL = "pcl2.ui.customLocal"
@@ -367,7 +373,7 @@ object PclAppearance {
     // ------------------------------------------------------------------ 主页
 
     /** `UiCustomType`。 */
-    var homeType by mutableStateOf(PclHomeType.EMPTY)
+    var homeType by mutableStateOf(PclHomeType.DEFAULT)
         private set
 
     /** `UiCustomNet`。 */
@@ -426,7 +432,17 @@ object PclAppearance {
         musicStart = mmkv.getBoolean(KEY_MUSIC_START, false)
         musicStop = mmkv.getBoolean(KEY_MUSIC_STOP, false)
         musicVolume = mmkv.getInt(KEY_MUSIC_VOLUME, 70)
-        homeType = mmkv.getInt(KEY_HOME_TYPE, PclHomeType.EMPTY)
+        // 旧版的「空白」实际上是默认信息流。首次升级时把旧的 0 迁到「默认」，
+        // 之后用户再主动选「侧边什么也没有」才会保存新的 0。
+        val storedHomeType = mmkv.getInt(KEY_HOME_TYPE, PclHomeType.DEFAULT)
+        homeType = if (!mmkv.getBoolean(KEY_HOME_TYPE_SPLIT, false)) {
+            val migrated = if (storedHomeType == PclHomeType.EMPTY) PclHomeType.DEFAULT else storedHomeType
+            mmkv.putBoolean(KEY_HOME_TYPE_SPLIT, true)
+            migrated
+        } else {
+            storedHomeType
+        }
+        if (!PclHomeType.isValid(homeType)) homeType = PclHomeType.DEFAULT
         homeNet = mmkv.getString(KEY_HOME_NET, "").orEmpty()
         homePreset = mmkv.getInt(KEY_HOME_PRESET, PclHomePresets.default().id)
             .let { id -> PclHomePresets.of(id)?.id ?: PclHomePresets.default().id }

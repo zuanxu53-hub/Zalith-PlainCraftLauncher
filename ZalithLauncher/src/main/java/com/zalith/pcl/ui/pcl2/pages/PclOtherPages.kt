@@ -837,6 +837,36 @@ private fun buildCustomDownload(url: String, folder: String, fileName: String): 
 
 private data class CustomDownload(val url: String, val target: File)
 
+/** 用 HEAD 跟随重定向探测文件大小；拿不到返回 -1。 */
+private suspend fun probeRemoteSize(url: String): Long = withContext(Dispatchers.IO) {
+    runCatching {
+        var current = java.net.URL(url)
+        repeat(8) {
+            val connection = (current.openConnection() as java.net.HttpURLConnection).apply {
+                requestMethod = "HEAD"
+                connectTimeout = 10_000
+                readTimeout = 10_000
+                instanceFollowRedirects = false
+                setRequestProperty("Accept-Encoding", "identity")
+            }
+            try {
+                val code = connection.responseCode
+                if (code in 300..399) {
+                    val location = connection.getHeaderField("Location") ?: return@runCatching -1L
+                    current = java.net.URL(current, location)
+                    return@repeat
+                }
+                if (code !in 200..299) return@runCatching -1L
+                val length = connection.getHeaderField("Content-Length")?.toLongOrNull() ?: -1L
+                return@runCatching length
+            } finally {
+                runCatching { connection.disconnect() }
+            }
+        }
+        -1L
+    }.getOrDefault(-1L)
+}
+
 /**
  * 提交下载任务。走 Zalith 自己的引擎（`DownloadEngine`），
  * 与「下载管理」共用同一条任务流，所以提交后在那里也能看到进度、也能取消。
@@ -848,20 +878,34 @@ private fun startCustomDownload(request: CustomDownload) {
             dispatcher = Dispatchers.IO,
             task = { task ->
                 task.updateProgress(-1f)
-                task.updateMessage(androidText("下载 ${request.target.name}"))
-                // 这个接口不预先知道大小（`expectedSize` 缺省），进度只能是「不确定」，
-                // 但消息里可以如实报出已落盘的累计字节数。
+                task.updateMessage(androidText("正在连接 ${request.target.name}…"))
+
+                // 先探测 Content-Length，能拿到就显示真实百分比，并让引擎按大小决定是否分段。
+                // HEAD 被网站拒绝时退回原来的不确定进度，下载本身不受影响。
+                val total = probeRemoteSize(request.url)
+                if (total > 0L) task.updateProgress(0f)
+
                 var downloaded = 0L
                 DownloadEngine.download(
                     request = DownloadRequest(
                         urls = listOf(request.url),
                         targetFile = request.target,
+                        expectedSize = total,
                     ),
                 ) { delta ->
                     downloaded += delta
-                    task.updateMessage(
-                        androidText("下载 ${request.target.name}（${formatBytes(downloaded)}）")
-                    )
+                    if (total > 0L) {
+                        task.updateProgress((downloaded.toFloat() / total).coerceIn(0f, 1f))
+                        task.updateMessage(
+                            androidText(
+                                "下载 ${request.target.name}（${formatBytes(downloaded)} / ${formatBytes(total)}）"
+                            )
+                        )
+                    } else {
+                        task.updateMessage(
+                            androidText("下载 ${request.target.name}（${formatBytes(downloaded)}）")
+                        )
+                    }
                 }
                 task.updateMessage(androidText("已下载 ${request.target.name}（${formatBytes(downloaded)}）"))
                 task.updateProgress(1f)

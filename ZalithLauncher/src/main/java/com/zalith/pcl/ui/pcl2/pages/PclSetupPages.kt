@@ -99,6 +99,7 @@ import com.zalith.pcl.ui.pcl2.data.LocalPclRuntime
 import com.zalith.pcl.ui.pcl2.PclHintHost
 import com.zalith.pcl.ui.pcl2.data.PclAppearance
 import com.zalith.pcl.ui.pcl2.data.PclBackgroundSuit
+import com.zalith.pcl.ui.pcl2.data.PclHomePresets
 import com.zalith.pcl.ui.pcl2.data.PclHomeType
 import com.zalith.pcl.ui.pcl2.data.PclSettings
 import com.zalith.pcl.ui.pcl2.pages.pclInstanceVersionPage
@@ -1130,8 +1131,7 @@ fun PclSetupUiPage() {
 
         // ---- 主页（PCL `PageSetupUI.xaml:569` 的 CardCustom）
         // PCL 的「主页」= 用自定义内容替换启动页右侧整块（左边账户 / 版本面板照旧）。
-        // 这里支持「联网更新」（输入网址）与「读取本地文件」（导入一个 html）；
-        // 「预设」要拉 PCL 官方的主页市场列表，本移植版没有那份数据，所以先置灰。
+        // 这里支持「空白 / 预设 / 读取本地文件 / 联网更新」四种。
         PclCard(modifier = Modifier.fillMaxWidth(), title = PclStrings.LangSetHomePageTitle) {
             Column {
                 Row(
@@ -1139,6 +1139,14 @@ fun PclSetupUiPage() {
                     horizontalArrangement = Arrangement.spacedBy(18.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    PclRadioBox(
+                        text = PclStrings.LangSetHomePageDefault,
+                        checked = PclAppearance.homeType == PclHomeType.DEFAULT,
+                        onCheckedChange = {
+                            PclAppearance.applyHomeType(PclHomeType.DEFAULT)
+                            PclAppearance.persist(context)
+                        },
+                    )
                     PclRadioBox(
                         text = PclStrings.LangSetHomePageEmpty,
                         checked = PclAppearance.homeType == PclHomeType.EMPTY,
@@ -1149,9 +1157,11 @@ fun PclSetupUiPage() {
                     )
                     PclRadioBox(
                         text = PclStrings.LangSetHomePagePreset,
-                        checked = false,
-                        enabled = false,
-                        onCheckedChange = {},
+                        checked = PclAppearance.homeType == PclHomeType.PRESET,
+                        onCheckedChange = {
+                            PclAppearance.applyHomeType(PclHomeType.PRESET)
+                            PclAppearance.persist(context)
+                        },
                     )
                     PclRadioBox(
                         text = PclStrings.LangSetHomePageLocal,
@@ -1169,6 +1179,23 @@ fun PclSetupUiPage() {
                             PclAppearance.persist(context)
                         },
                     )
+                }
+                if (PclAppearance.homeType == PclHomeType.PRESET) {
+                    Spacer(Modifier.height(10.dp))
+                    SetupRow(PclStrings.LangSetHomePagePresetPage) {
+                        PclComboBox(
+                            items = PclHomePresets.entries,
+                            selected = PclHomePresets.of(PclAppearance.homePreset),
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { it?.name.orEmpty() },
+                            onSelect = { entry ->
+                                entry?.let {
+                                    PclAppearance.applyHomePreset(it.id)
+                                    PclAppearance.persist(context)
+                                }
+                            },
+                        )
+                    }
                 }
                 if (PclAppearance.homeType == PclHomeType.ONLINE) {
                     Spacer(Modifier.height(10.dp))
@@ -1207,9 +1234,9 @@ fun PclSetupUiPage() {
                     )
                 }
                 PclHint(
-                    text = "设定后，「主页」版块的右侧会换成这个自定义主页（左边的账户与版本面板不变），" +
-                            "顶部有一条「刷新主页」。「预设」要拉 PCL 官方的主页市场列表，" +
-                            "本移植版没有那份数据，所以先置灰。",
+                    text = "设定后，「主页」版块的右侧会换成这个自定义主页（左边的账户与版本面板不变）。" +
+                            "「默认」显示提示条、你知道吗与启动日志；「侧边什么也没有」则右侧整块留空。" +
+                            "「预设」里是 PCL 社区常用的主页；联网类预设需要网络，首次打开会稍慢。",
                     theme = PclHintTheme.Blue,
                 )
             }

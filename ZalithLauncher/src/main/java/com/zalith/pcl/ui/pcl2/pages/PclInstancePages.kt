@@ -1374,30 +1374,17 @@ private fun PclInstanceModPage(version: Version) {
     }
 
     // 「从文件安装」：选一个 Mod 文件拷进 mods 目录（PCL 的拖入安装的等价入口）
-    val installPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+    val installPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
-            val name = withContext(Dispatchers.IO) {
-                runCatching {
-                    androidx.documentfile.provider.DocumentFile.fromSingleUri(context, uri)?.name
-                }.getOrNull()
-            } ?: "mod.jar"
-            val ok = withContext(Dispatchers.IO) {
-                runCatching {
-                    modsDir.mkdirs()
-                    val target = File(modsDir, if (name.endsWith(".jar")) name else "$name.jar")
-                    context.contentResolver.openInputStream(uri)?.use { input ->
-                        FileOutputStream(target).use { output -> input.copyTo(output) }
-                    } ?: error("无法读取所选文件")
-                    true
-                }.getOrDefault(false)
-            }
-            if (ok) {
-                PclHintHost.push("已安装「$name」。", PclHintTheme.Green)
-                token++
-            } else {
-                PclHintHost.push("安装失败。", PclHintTheme.Red)
-            }
+            pclImportSharedResource(context, uri, modsDir, PclSharedResourceKind.MOD)
+                .onSuccess { file ->
+                    PclHintHost.push("已安装「${file.name}」。", PclHintTheme.Green)
+                    token++
+                }
+                .onFailure {
+                    PclHintHost.push("安装失败：${it.message ?: it.javaClass.simpleName}", PclHintTheme.Red)
+                }
         }
     }
 
@@ -1455,7 +1442,7 @@ private fun PclInstanceModPage(version: Version) {
                     contentPadding = PaddingValues(start = 10.dp, top = 10.dp, end = 10.dp, bottom = 0.dp),
                     buttonsTopPadding = 20.dp,
                     moreButtons = listOf(
-                        PclEmptyButton("从文件安装") { installPicker.launch("application/java-archive") },
+                        PclEmptyButton("从文件安装") { installPicker.launch(arrayOf("*/*")) },
                         PclEmptyButton("打开文件夹") { openFolder(context, modsDir) },
                     ),
                 )
@@ -1484,7 +1471,7 @@ private fun PclInstanceModPage(version: Version) {
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(15.dp)) {
                 PclManageButton("打开文件夹", highlight = true) { openFolder(context, modsDir) }
-                PclManageButton("从文件安装") { installPicker.launch("application/java-archive") }
+                PclManageButton("从文件安装") { installPicker.launch(arrayOf("*/*")) }
                 PclManageButton("下载新 Mod") { nav.go(PclSection.Download) }
                 // PageInstanceMod.xaml.vb:270 —— 「全选」的文字永不变化，点一下在
                 // 「全选中」与「全不选」之间切换（ChangeAllSelected(SelectedMods.Count < 列表数)），

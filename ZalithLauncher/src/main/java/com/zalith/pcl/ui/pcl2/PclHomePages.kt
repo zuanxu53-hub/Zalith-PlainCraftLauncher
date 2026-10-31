@@ -16,6 +16,7 @@
 
 package com.zalith.pcl.ui.pcl2
 
+import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -668,9 +669,32 @@ private fun startMicrosoftLogin(runtime: PclRuntime, context: android.content.Co
     }
     microsoftLogin(
         context = runtime.activity,
-        toWeb = { url -> runtime.openWebPage(url, "Microsoft 账户登录") },
+        toWeb = { url ->
+            // 微软的设备码登录页在 WebView 里经常在授权完成后停在白屏，刷新还会把
+            // 一次性会话刷成「我们无法满足你的需求」。设备码流程本身与浏览器无关
+            // （应用在后台轮询令牌），所以优先交给系统浏览器；没有浏览器才退回内置页。
+            val opened = runCatching {
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+                true
+            }.getOrDefault(false)
+            if (opened) {
+                PclHintHost.push(
+                    "验证码已复制。请在浏览器中完成登录，授权后回到启动器即可，无需手动关闭页面。",
+                    PclHintTheme.Blue,
+                )
+            } else {
+                runtime.openWebPage(url, "Microsoft 账户登录")
+                PclHintHost.push("没有可用的浏览器，已改用启动器内登录页。", PclHintTheme.Yellow)
+            }
+        },
         backToMain = { runtime.closeWebPage() },
-        checkIfInWebScreen = { runtime.webPage != null },
+        // 关闭页面不再等同于放弃登录：设备码已经发出，用户很可能是在微软的
+        // 「已完成」白屏上点了关闭，此时令牌轮询还在进行，关页就取消会把一次
+        // 已经成功的授权直接作废。真正的取消交给任务管理器。
+        checkIfInWebScreen = { true },
         updateOperation = { },
         showToast = { text, _ ->
             PclHintHost.push(text.toAndroidString(context), PclHintTheme.Blue)
@@ -1750,6 +1774,10 @@ fun PclHomeRight(nav: PclNavController) {
     // 右侧整块换成自定义主页，左边的账户 / 版本面板照旧。
     val context = LocalContext.current
     val runtime = LocalPclRuntime.current
+
+    // 「侧边什么也没有」：整块右侧不画任何东西（连提示条和启动日志也不画）。
+    if (PclAppearance.homeType == PclHomeType.EMPTY) return
+
     var reloadToken by remember { mutableStateOf(0) }
     // 主页里 `EventType="弹出窗口"` 的标题 / 内容（PclConfirmDialog 展示）。
     var homeDialog by remember { mutableStateOf<Pair<String, String>?>(null) }
@@ -1768,7 +1796,10 @@ fun PclHomeRight(nav: PclNavController) {
     // 远程预设 / 本地文件 / 联网更新：统一由 [PclHomeLoader] 解析成「网址」或「已转换的
     // HTML」；远程 PCL 主页 XAML 会在 IO 线程下载并转换，所以这里异步等待。
     var homeEntry by remember { mutableStateOf<PclHomeEntry?>(null) }
-    var resolved by remember { mutableStateOf(false) }
+    // 「默认」直接用下面的内置信息流，不要先闪一下「正在加载自定义主页」。
+    var resolved by remember {
+        mutableStateOf(PclAppearance.homeType == PclHomeType.DEFAULT)
+    }
 
     LaunchedEffect(
         PclAppearance.homeType,
@@ -1777,6 +1808,13 @@ fun PclHomeRight(nav: PclNavController) {
         PclAppearance.homeLocalFile,
         reloadToken,
     ) {
+        if (PclAppearance.homeType == PclHomeType.DEFAULT ||
+            PclAppearance.homeType == PclHomeType.EMPTY
+        ) {
+            homeEntry = null
+            resolved = true
+            return@LaunchedEffect
+        }
         resolved = false
         homeEntry = PclHomeLoader.resolve(context)
         resolved = true

@@ -192,6 +192,14 @@ object AllSettings : SettingsRegistry() {
     val physicalKeyImeCode = intSetting("physicalKeyImeCode", null)
 
     /**
+     * 摇杆自动前进锁。
+     *
+     * 关闭（默认）：松手必定回中，不会自己一直走；
+     * 开启：推到上方超过锁定阈值后松手，摇杆会锁在前进方向，再点一下摇杆取消。
+     */
+    val joystickForwardLock = boolSetting("joystickForwardLock", false)
+
+    /**
      * 隐藏虚拟鼠标
      */
     val hideMouse = boolSetting("hideMouse", false)

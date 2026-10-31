@@ -111,8 +111,12 @@ object SegmentedDownloader {
         sha1: String?,
         expectedSize: Long,
         onBytes: (Long) -> Unit,
+        /** 分段上限；MobileGlues 这类固定 10 MB 左右的单文件可以显式开到 64。 */
+        maxSegments: Int = MAX_SEGMENTS,
+        /** 单段最小长度；配合 maxSegments 让 11 MB 的文件也能切出足够多的连接。 */
+        minSegmentSize: Long = MIN_SEGMENT_SIZE,
     ): Boolean {
-        if (expectedSize < MIN_TOTAL_SIZE) return false
+        if (expectedSize < minSegmentSize) return false
 
         if (activeSegmentedFiles.incrementAndGet() > MAX_PARALLEL_FILES) {
             activeSegmentedFiles.decrementAndGet()
@@ -135,7 +139,13 @@ object SegmentedDownloader {
                 var reported = 0L
                 var succeeded = false
                 try {
-                    val result = attempt(url, targetFile, sha1) { delta ->
+                    val result = attempt(
+                        url = url,
+                        targetFile = targetFile,
+                        sha1 = sha1,
+                        maxSegments = maxSegments,
+                        minSegmentSize = minSegmentSize,
+                    ) { delta ->
                         reported += delta
                         onBytes(delta)
                     }
@@ -166,6 +176,8 @@ object SegmentedDownloader {
         url: URL,
         targetFile: File,
         sha1: String?,
+        maxSegments: Int,
+        minSegmentSize: Long,
         report: (Long) -> Unit,
     ): Boolean {
         val probe = probe(url) ?: return false
@@ -175,7 +187,7 @@ object SegmentedDownloader {
         val parent = targetFile.absoluteFile.parentFile ?: return false
         if (!parent.exists() && !parent.mkdirs()) return false
 
-        val segmentCount = (total / MIN_SEGMENT_SIZE).toInt().coerceIn(2, MAX_SEGMENTS)
+        val segmentCount = (total / minSegmentSize).toInt().coerceIn(2, maxSegments)
         val temp = File(parent, "${targetFile.name}.zpart")
         runCatching { if (temp.exists()) temp.delete() }
 

@@ -324,6 +324,12 @@ fun PclSetupControlPage() {
                     summary = "连接实体鼠标时，是否禁用虚拟鼠标指针，直接使用系统鼠标指针进行操控。",
                 )
                 Spacer(Modifier.height(8.dp))
+                ExtraCheck(
+                    text = "摇杆自动前进锁",
+                    unit = AllSettings.joystickForwardLock,
+                    summary = "关闭时松手必定回中，不会自己一直走；开启后把摇杆推到最上方再松手，会锁定持续前进。",
+                )
+                Spacer(Modifier.height(8.dp))
                 ExtraRow("呼出输入法按键") {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         val code = AllSettings.physicalKeyImeCode.state

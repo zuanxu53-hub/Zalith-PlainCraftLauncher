@@ -349,6 +349,7 @@ object PclStrings {
     const val LangSetHomePageLocal = "读取本地文件"
     const val LangSetHomePageOnline = "联网更新"
     const val LangSetHomePageDownload = "下载地址"
+    const val LangSetHomePageDefault = "默认"
     const val LangSetHomePageEmpty = "空白"
     const val LangSetHomePageRefresh = "刷新主页"
     const val LangSetHomePageCustomWarn = "在使用陌生人提供的主页前请务必谨慎，恶意的主页可能会造成损害！"

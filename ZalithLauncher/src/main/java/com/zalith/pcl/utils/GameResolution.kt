@@ -58,12 +58,12 @@ data class GameDisplayLayout(
      * 将全屏布局坐标换算为游戏渲染坐标
      */
     fun mapToGame(position: Offset): Offset {
-        val scaleX = renderSize.width / displaySize.width.toFloat()
-        val scaleY = renderSize.height / displaySize.height.toFloat()
-        return Offset(
-            (position.x - offset.x) * scaleX,
-            (position.y - offset.y) * scaleY
-        )
+        // GLFW 的鼠标坐标是「窗口/显示区域」坐标，不是帧缓冲的渲染分辨率。
+        // 之前乘了 renderSize / displaySize：自定义分辨率开 150% 时指针会被放大 1.5 倍，
+        // 越往右下偏得越多，物品栏和背包根本点不到。这里只去掉黑边偏移并夹在显示区域内。
+        val x = (position.x - offset.x).coerceIn(0f, (displaySize.width - 1).coerceAtLeast(0).toFloat())
+        val y = (position.y - offset.y).coerceIn(0f, (displaySize.height - 1).coerceAtLeast(0).toFloat())
+        return Offset(x, y)
     }
 }
 
