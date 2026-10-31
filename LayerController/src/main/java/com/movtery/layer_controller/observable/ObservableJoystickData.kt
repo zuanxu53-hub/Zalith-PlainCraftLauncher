@@ -281,10 +281,9 @@ class ObservableJoystickData(data: JoystickData) : ObservableWidget() {
         )
         updateDirection(direction, eventHandler)
 
-        val newCanLockState =
-            canLock &&
-                    direction == JoystickDirection.North &&
-                    lastDragPosition.y < -lockThresholdPx
+        // 自动前进锁在手机上极易误触：推到上方再松手就永久前进，看起来像摇杆失控。
+        // 不再根据位置自动进入锁定；只有显式锁定（如果以后提供按钮）才允许锁。
+        val newCanLockState = false
 
         if (newCanLockState && !canLockState) {
             eventHandler.onKeyPressed(lockEvents, true)
@@ -399,28 +398,16 @@ class ObservableJoystickData(data: JoystickData) : ObservableWidget() {
                             val deadZoneRadius = bgRadius * deadZoneRatio
                             val lockThresholdPx = bgRadius * lockThreshold
 
-                            if (canLockState) {
-                                isLocked = true
-                                canLockState = false
-                                val lockPosition = Offset(centerPoint.x, 0f)
-                                updateJoystickState(
-                                    position = lockPosition,
-                                    centerPoint = centerPoint,
-                                    deadZoneRadius = deadZoneRadius,
-                                    lockThresholdPx = lockThresholdPx,
-                                    eventHandler = eventHandler
-                                )
-                            } else {
-                                canLockState = false
-                                isLocked = false
-                                updateJoystickState(
-                                    position = centerPoint,
-                                    centerPoint = centerPoint,
-                                    deadZoneRadius = deadZoneRadius,
-                                    lockThresholdPx = lockThresholdPx,
-                                    eventHandler = eventHandler
-                                )
-                            }
+                            // 松手一律回中并释放方向键，避免残留前进。
+                            canLockState = false
+                            isLocked = false
+                            updateJoystickState(
+                                position = centerPoint,
+                                centerPoint = centerPoint,
+                                deadZoneRadius = deadZoneRadius,
+                                lockThresholdPx = lockThresholdPx,
+                                eventHandler = eventHandler
+                            )
 
                             activePointer = null
                             onReleasePointer(pointerId)
