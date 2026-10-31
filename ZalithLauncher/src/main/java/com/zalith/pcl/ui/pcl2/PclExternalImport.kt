@@ -19,6 +19,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalContext
@@ -30,19 +31,24 @@ import com.zalith.pcl.ui.activities.IMPORT_TYPE_CONTROLS
 import com.zalith.pcl.ui.activities.IMPORT_TYPE_MODPACK
 import com.zalith.pcl.ui.pcl2.components.PclHintTheme
 import com.zalith.pcl.ui.pcl2.components.PclNoticeDialog
+import com.zalith.pcl.ui.pcl2.components.PclSelectDialog
 import com.zalith.pcl.ui.pcl2.data.PclImportBridge
 import com.zalith.pcl.ui.pcl2.data.PclImportRequest
 import com.zalith.pcl.ui.pcl2.data.PclRuntime
 import com.zalith.pcl.ui.pcl2.pages.pclDiscardIncompleteVersion
+import com.zalith.pcl.ui.pcl2.pages.PclSharedResourceKind
+import com.zalith.pcl.ui.pcl2.pages.pclDisplayName
+import com.zalith.pcl.ui.pcl2.pages.pclImportSharedResource
+import com.zalith.pcl.ui.pcl2.pages.pclSharedKindOf
 import com.zalith.pcl.utils.logging.Logger
 // 注意：`PclTitledTaskDialog` / `modpackImportErrorText` 在 `PclSectionPages.kt` 里，
 // 那个文件的 package 是 `...ui.pcl2`（不是 `.pages`），与本文件同包，不需要 import。
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
@@ -70,6 +76,9 @@ fun PclExternalImportHost(runtime: PclRuntime) {
      * 这里改成必须点掉的提示框。
      */
     var controlError by remember { mutableStateOf<String?>(null) }
+    /** 分享进来的 Mod / 资源包 / 光影包：先选类型（zip 有歧义），再选目标实例。 */
+    var sharedResource by remember { mutableStateOf<PendingSharedResource?>(null) }
+    val scope = rememberCoroutineScope()
 
     // 【key 必须是 Unit，绝对不能是 `PclImportBridge.pending`】
     // `take()` 会把 `pending` 置成 null，于是这个 key 立刻从「有请求」变成 null ——
@@ -85,12 +94,21 @@ fun PclExternalImportHost(runtime: PclRuntime) {
                 when (val type = resolveImportKind(context, req)) {
                     IMPORT_TYPE_MODPACK -> importer = startModpackImport(context, runtime, req.uri)
                     IMPORT_TYPE_CONTROLS -> controlError = importControlLayout(context, req.uri)
+                    IMPORT_TYPE_RESOURCE -> {
+                        val name = pclDisplayName(context, req.uri) ?: "资源文件"
+                        sharedResource = PendingSharedResource(
+                            uri = req.uri,
+                            name = name,
+                            kind = pclSharedKindOf(name),
+                        )
+                    }
                     else -> {
                         // `auto` 入口拿到的是通配类型，认不出来就明确告诉用户，
                         // 别再「跳个界面就没动静」
                         val name = displayNameOf(context, req.uri) ?: "这个文件"
                         PclHintHost.push(
-                            "「$name」不是启动器能识别的类型（支持 .json 键位布局与 .zip/.mrpack 整合包）。",
+                            "「$name」不是启动器能识别的类型（支持 .json 键位、.jar Mod、" +
+                                ".zip 资源包/光影包/整合包与 .mrpack 整合包）。",
                             PclHintTheme.Yellow
                         )
                         // 类型常量留个引用，避免 when 分支被 lint 当成死代码
@@ -121,7 +139,79 @@ fun PclExternalImportHost(runtime: PclRuntime) {
             onDismiss = { controlError = null },
         )
     }
+
+    sharedResource?.let { pending ->
+        if (pending.kind == null) {
+            PclSelectDialog(
+                title = "「${pending.name}」导入为",
+                options = listOf(
+                    "modpack" to "整合包（安装为新版本）",
+                    "resourcepack" to "资源包",
+                    "shader" to "光影包",
+                ),
+                current = null,
+                onSelect = { choice ->
+                    when (choice) {
+                        "modpack" -> {
+                            sharedResource = null
+                            importer = startModpackImport(context, runtime, pending.uri)
+                        }
+                        "resourcepack" -> sharedResource = pending.copy(
+                            kind = PclSharedResourceKind.RESOURCE_PACK,
+                        )
+                        else -> sharedResource = pending.copy(
+                            kind = PclSharedResourceKind.SHADER,
+                        )
+                    }
+                },
+                onDismiss = { sharedResource = null },
+            )
+        } else {
+            val kind = pending.kind
+            val versions = runtime.versions.value.mapNotNull { version ->
+                version.getVersionName().takeIf { it.isNotBlank() }
+                    ?.let { version.getVersionPath().absolutePath to it }
+            }.distinctBy { it.first }
+            PclSelectDialog(
+                title = "把${kind.label}导入到哪个游戏",
+                options = versions,
+                current = runtime.currentVersion.value?.getVersionPath()?.absolutePath,
+                onSelect = { id ->
+                    val target = runtime.versions.value.firstOrNull {
+                        it.getVersionPath().absolutePath == id
+                    }
+                    sharedResource = null
+                    if (target == null) return@PclSelectDialog
+                    scope.launch {
+                        pclImportSharedResource(context, pending.uri, kind.dirOf(target), kind)
+                            .onSuccess { file ->
+                                PclHintHost.push(
+                                    "已把「${file.name}」导入到「${target.getVersionName()}」。",
+                                    PclHintTheme.Green,
+                                )
+                            }
+                            .onFailure {
+                                PclHintHost.push(
+                                    "导入失败：${it.message ?: it.javaClass.simpleName}",
+                                    PclHintTheme.Red,
+                                )
+                            }
+                    }
+                },
+                onDismiss = { sharedResource = null },
+            )
+        }
+    }
 }
+
+/** 分享进来、等待选择类型与实例的资源文件。 */
+private data class PendingSharedResource(
+    val uri: Uri,
+    val name: String,
+    val kind: PclSharedResourceKind?,
+)
+
+private const val IMPORT_TYPE_RESOURCE = "resource"
 
 /**
  * 把一次导入请求解析成具体的处理类型。
@@ -135,7 +225,9 @@ private fun resolveImportKind(context: Context, req: PclImportRequest): String {
     val name = displayNameOf(context, req.uri)?.lowercase().orEmpty()
     return when {
         name.endsWith(".json") -> IMPORT_TYPE_CONTROLS
-        name.endsWith(".zip") ||
+        name.endsWith(".jar") -> IMPORT_TYPE_RESOURCE
+        // .zip 可能是资源包 / 光影包，也可能是整合包，交给界面让用户选
+        name.endsWith(".zip") -> IMPORT_TYPE_RESOURCE
         name.endsWith(".mrpack") ||
         name.endsWith(".modpack") ||
         name.endsWith(".mcbbs") ||
