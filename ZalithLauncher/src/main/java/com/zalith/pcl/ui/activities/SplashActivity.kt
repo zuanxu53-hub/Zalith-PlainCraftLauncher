@@ -30,6 +30,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.FileProvider
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
@@ -46,6 +50,7 @@ import com.zalith.pcl.components.jre.UnpackJnaTask
 import com.zalith.pcl.components.jre.UnpackJreTask
 import com.zalith.pcl.setting.AllSettings
 import com.zalith.pcl.ui.base.BaseAppCompatActivity
+import com.zalith.pcl.ui.pcl2.components.PclConfirmDialog
 import com.zalith.pcl.ui.screens.splash.SplashScreen
 import com.zalith.pcl.ui.theme.ZalithLauncherTheme
 import com.zalith.pcl.ui.theme.backgroundColor
@@ -78,7 +83,7 @@ const val IMPORT_TYPE_UNKNOWN = "unknown"
 @SuppressLint("CustomSplashScreen")
 @AndroidEntryPoint
 class SplashActivity : BaseAppCompatActivity() {
-    private val unpackItems: MutableList<InstallableItem> = ArrayList()
+    private val unpackItems = mutableStateListOf<InstallableItem>()
     private val finishedTaskCount = AtomicInteger(0)
 
     /** 解压任务只允许启动一次：按钮重复点不能把任务再排一遍 */
@@ -92,6 +97,8 @@ class SplashActivity : BaseAppCompatActivity() {
     private var pendingMobileGluesApk: File? = null
     /** 安装界面拉起后是否继续进入主界面。 */
     private var launchAfterMobileGlues = false
+    /** 是否正在显示 MobileGlues 询问框（PCL 风格，画在解压页上）。 */
+    private var askMobileGlues by mutableStateOf(false)
 
     private val backStackViewModel: SplashBackStackViewModel by viewModels()
 
@@ -100,9 +107,55 @@ class SplashActivity : BaseAppCompatActivity() {
         super.onCreate(savedInstanceState)
 
         initUnpackItems()
-        maybeAskMobileGlues {
-            startSplashUi()
+        checkAllTask()
+
+        val prefs = getSharedPreferences("pcl2.mobileglues", MODE_PRIVATE)
+        val mgInstalled = runCatching {
+            packageManager.getPackageInfo("com.fcl.plugin.mobileglues", 0)
+            true
+        }.getOrDefault(false)
+        askMobileGlues = !mgInstalled && !prefs.getBoolean("splash_asked_v2", false)
+
+        if (!askMobileGlues && checkTasksToMain()) return
+        setContent {
+            ZalithLauncherTheme {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = backgroundColor(),
+                    contentColor = onBackgroundColor()
+                ) {
+                    SplashScreen(
+                        startAllTask = { startAllTask() },
+                        unpackItems = unpackItems,
+                        screenViewModel = backStackViewModel,
+                    )
+                }
+            }
+            if (askMobileGlues) {
+                PclConfirmDialog(
+                    title = "是否安装 MobileGlues 渲染器？",
+                    content = "MobileGlues 可以提升部分机型的游戏渲染性能。\n\n" +
+                        "选择「安装」后，它会加入「需要安装的内容」，点「同意并安装」时" +
+                        "自动从 GitHub 下载并调起系统安装器。",
+                    confirmText = "安装",
+                    dismissText = "不安装",
+                    dismissOnOutsideClick = false,
+                    onConfirm = { resolveMobileGluesChoice(true) },
+                    onDismiss = { resolveMobileGluesChoice(false) },
+                )
+            }
         }
+    }
+
+    private fun resolveMobileGluesChoice(install: Boolean) {
+        getSharedPreferences("pcl2.mobileglues", MODE_PRIVATE)
+            .edit()
+            .putBoolean("splash_asked_v2", true)
+            .putBoolean("prompted", true)
+            .apply()
+        askMobileGlues = false
+        if (install) addMobileGluesItem()
+        if (checkTasksToMain()) return
     }
 
     /** 询问结束（或无需询问）后再检查解压状态、挂载界面。 */
@@ -331,7 +384,7 @@ class SplashActivity : BaseAppCompatActivity() {
             packageManager.getPackageInfo("com.fcl.plugin.mobileglues", 0)
             true
         }.getOrDefault(false)
-        if (installed || prefs.getBoolean("splash_asked", false)) {
+        if (installed || prefs.getBoolean("splash_asked_v2", false)) {
             onDone()
             return
         }
@@ -345,12 +398,12 @@ class SplashActivity : BaseAppCompatActivity() {
             )
             .setCancelable(false)
             .setPositiveButton("安装") { _, _ ->
-                prefs.edit().putBoolean("splash_asked", true).putBoolean("prompted", true).apply()
+                prefs.edit().putBoolean("splash_asked_v2", true).putBoolean("prompted", true).apply()
                 addMobileGluesItem()
                 onDone()
             }
             .setNegativeButton("不安装") { _, _ ->
-                prefs.edit().putBoolean("splash_asked", true).putBoolean("prompted", true).apply()
+                prefs.edit().putBoolean("splash_asked_v2", true).putBoolean("prompted", true).apply()
                 onDone()
             }
             .show()
