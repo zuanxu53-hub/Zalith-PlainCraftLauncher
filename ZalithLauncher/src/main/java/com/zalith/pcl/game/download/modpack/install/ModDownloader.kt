@@ -81,7 +81,9 @@ class ModDownloader(
         val skippedMods = ConcurrentHashMap.newKeySet<String>()
         // 被跳过的可选资源，结束时汇总成一条日志，方便事后手动补
         val skippedAssets = ConcurrentHashMap.newKeySet<String>()
-        val tasks = prepareAll(resolvedFailures, missingMods, missedAssets, skippedAssets)
+        // 链接解析失败的模组名，结束时写日志方便手动补
+        val unresolvedMods = ConcurrentHashMap.newKeySet<String>()
+        val tasks = prepareAll(resolvedFailures, missingMods, missedAssets, skippedAssets, unresolvedMods)
 
         try {
             runBatch(task, tasks, R.string.download_modpack_download_mods, missingMods, missedAssets, skippedMods, skippedAssets)
@@ -102,9 +104,20 @@ class ModDownloader(
             )
         }
 
-        // 只有模组（以及链接解析失败）才是致命的
-        if (resolvedFailures.get() > 0) {
-            throw DownloadFailedException("${resolvedFailures.get()} mods failed to resolve download links")
+        // 少量模组解析失败不应该让整包白装：整合包经常有个别源站下架/限流的文件。
+        // 失败过半才说明这个包整体有问题，此时仍然中止。
+        val failedCount = resolvedFailures.get()
+        if (failedCount > 0) {
+            val fatal = failedCount * 2 >= mods.size
+            Logger.warning(
+                TAG,
+                "无法解析 $failedCount/${mods.size} 个模组的下载链接：" +
+                        unresolvedMods.joinToString("、") +
+                        if (fatal) "（超过一半，中止安装）" else "（已跳过，继续安装）"
+            )
+            if (fatal) {
+                throw DownloadFailedException("$failedCount mods failed to resolve download links")
+            }
         }
 
         task.updateProgress(1f)
@@ -165,6 +178,7 @@ class ModDownloader(
         missingMods: AtomicInteger,
         missedAssets: AtomicInteger,
         skippedAssets: MutableSet<String>,
+        unresolvedMods: MutableSet<String>,
     ): List<DownloadTask> =
         coroutineScope {
             val semaphore = Semaphore(maxDownloadThreads)
@@ -190,6 +204,7 @@ class ModDownloader(
                             if (mod.outputFile.isOptionalAsset()) {
                                 countOptional(mod, missedAssets, skippedAssets)
                             } else {
+                                mod.outputFile?.name?.let { unresolvedMods.add(it) }
                                 resolvedFailures.incrementAndGet()
                             }
                             null
