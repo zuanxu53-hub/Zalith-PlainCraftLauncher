@@ -120,6 +120,20 @@ class ModDownloader(
             }
         }
 
+        val missing = missingMods.get()
+        if (missing > 0) {
+            val fatal = missing * 2 >= mods.size
+            Logger.warning(
+                TAG,
+                "有 $missing/${mods.size} 个模组下载失败：" +
+                        skippedMods.joinToString("、") { File(it).name } +
+                        if (fatal) "（超过一半，中止安装）" else "（已跳过，继续安装）"
+            )
+            if (fatal) {
+                throw DownloadFailedException("$missing mods failed to download")
+            }
+        }
+
         task.updateProgress(1f)
         task.updateMessage(null)
     }
@@ -153,21 +167,20 @@ class ModDownloader(
                 val code = error.findHttpCode()
                 // 404（源端下架）跳过；资源包 / 光影包无论什么原因失败都跳过 ——
                 // 少几个资源包不该让整个整合包装不上
-                val notFound = error is FileNotFoundException || error is NotFoundException || code == 404
+                // 和 Zalith 一样：下载失败不整包中止，先跳过并记录；
+                // 失败过半才说明包整体不可用，由 startDownload 统一判定。
                 val optional = downloadTask.targetFile.isOptionalAsset()
-                if (notFound || optional) {
-                    // 跨轮次按目标文件判重，避免同一个文件在重试轮被重复计数
-                    val path = downloadTask.targetFile.absolutePath
-                    if (skippedMods.add(path)) {
-                        if (optional) {
-                            missedAssets.incrementAndGet()
-                            skippedAssets.add(downloadTask.targetFile.name)
-                        } else {
-                            missingMods.incrementAndGet()
-                        }
+                // 跨轮次按目标文件判重，避免同一个文件在重试轮被重复计数
+                val path = downloadTask.targetFile.absolutePath
+                if (skippedMods.add(path)) {
+                    if (optional) {
+                        missedAssets.incrementAndGet()
+                        skippedAssets.add(downloadTask.targetFile.name)
+                    } else {
+                        missingMods.incrementAndGet()
                     }
                 }
-                notFound || optional
+                true
             }
         )
     }
