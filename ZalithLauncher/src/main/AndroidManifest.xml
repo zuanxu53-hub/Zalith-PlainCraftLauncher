@@ -279,6 +279,7 @@
     </application>
     <queries>
         <package android:name="net.kdt.pojavlaunch.ffmpeg"/>
+        <package android:name="com.fcl.plugin.mobileglues"/>
         <intent>
             <action android:name="android.intent.action.MAIN" />
         </intent>
