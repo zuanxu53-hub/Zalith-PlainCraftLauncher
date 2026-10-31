@@ -30,6 +30,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.zalith.pcl.R
 import com.zalith.pcl.components.Components
 import com.zalith.pcl.components.InstallableItem
@@ -287,6 +288,52 @@ class SplashActivity : BaseAppCompatActivity() {
     }
 
     private fun swapToMain() {
+        // 自动解压已经结束，在进入主界面之前做一次 MobileGlues 检查：
+        // 用户此时还停在「需要安装的内容」这一屏，询问不会被主界面盖住。
+        if (promptMobileGluesIfNeeded()) return
+        launchMain()
+    }
+
+    /**
+     * 缺失 MobileGlues 时弹询问。返回 true 表示已经弹窗，主界面会在用户选择后启动。
+     *
+     * 插件本身必须由系统安装器安装，这里只负责发现缺失并给官方下载入口。
+     */
+    private fun promptMobileGluesIfNeeded(): Boolean {
+        val prefs = getSharedPreferences("pcl2.mobileglues", MODE_PRIVATE)
+        if (prefs.getBoolean("prompted", false)) return false
+        val installed = runCatching {
+            packageManager.getPackageInfo("com.fcl.plugin.mobileglues", 0)
+            true
+        }.getOrDefault(false)
+        if (installed) return false
+
+        prefs.edit().putBoolean("prompted", true).apply()
+        MaterialAlertDialogBuilder(this)
+            .setTitle("未检测到 MobileGlues 渲染器")
+            .setMessage(
+                "MobileGlues 是独立 APK 渲染器插件，不能直接打进启动器。\n\n" +
+                    "安装官方插件后，它会出现在「设置 → 控制设置 → 渲染器」列表里。" +
+                    "是否现在前往官方发布页下载安装？"
+            )
+            .setCancelable(false)
+            .setPositiveButton("前往下载") { _, _ ->
+                runCatching {
+                    startActivity(
+                        Intent(
+                            Intent.ACTION_VIEW,
+                            Uri.parse("https://github.com/MobileGL-Dev/MobileGlues-release/releases")
+                        )
+                    )
+                }
+                launchMain()
+            }
+            .setNegativeButton("暂不") { _, _ -> launchMain() }
+            .show()
+        return true
+    }
+
+    private fun launchMain() {
         //根据设置决定进入 PCL2 风格界面还是原生 Material 界面
         val target = if (AllSettings.usePcl2Ui.getValue()) {
             Pcl2Activity::class.java
