@@ -301,14 +301,16 @@ class SplashActivity : BaseAppCompatActivity() {
      */
     private fun promptMobileGluesIfNeeded(): Boolean {
         val prefs = getSharedPreferences("pcl2.mobileglues", MODE_PRIVATE)
-        if (prefs.getBoolean("prompted", false)) return false
+        // 用独立键：之前版本可能在主界面弹过一次（旧键 prompted），
+        // 不能让那次的「暂不」把这次解压页的询问也吞掉。
+        if (prefs.getBoolean("splash_prompted", false)) return false
         val installed = runCatching {
             packageManager.getPackageInfo("com.fcl.plugin.mobileglues", 0)
             true
         }.getOrDefault(false)
         if (installed) return false
 
-        prefs.edit().putBoolean("prompted", true).apply()
+        prefs.edit().putBoolean("splash_prompted", true).apply()
         MaterialAlertDialogBuilder(this)
             .setTitle("未检测到 MobileGlues 渲染器")
             .setMessage(
