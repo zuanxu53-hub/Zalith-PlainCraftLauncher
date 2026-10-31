@@ -22,12 +22,16 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import androidx.core.content.FileProvider
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -46,6 +50,8 @@ import com.zalith.pcl.ui.theme.ZalithLauncherTheme
 import com.zalith.pcl.ui.theme.backgroundColor
 import com.zalith.pcl.ui.theme.onBackgroundColor
 import com.zalith.pcl.utils.logging.Logger
+import com.zalith.pcl.utils.network.downloadFile
+import com.zalith.pcl.utils.network.fetchStringFromUrl
 import com.zalith.pcl.viewmodel.SplashBackStackViewModel
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
@@ -80,6 +86,11 @@ class SplashActivity : BaseAppCompatActivity() {
     private val failures = ConcurrentLinkedQueue<Pair<String, String>>()
 
     private var pendingImportIntent: Intent? = null
+
+    /** 已下载、等待「安装未知应用」授权后继续安装的 MobileGlues APK。 */
+    private var pendingMobileGluesApk: File? = null
+    /** 安装界面拉起后是否继续进入主界面。 */
+    private var launchAfterMobileGlues = false
 
     private val backStackViewModel: SplashBackStackViewModel by viewModels()
 
@@ -319,20 +330,142 @@ class SplashActivity : BaseAppCompatActivity() {
                     "是否现在前往官方发布页下载安装？"
             )
             .setCancelable(false)
-            .setPositiveButton("前往下载") { _, _ ->
-                runCatching {
-                    startActivity(
-                        Intent(
-                            Intent.ACTION_VIEW,
-                            Uri.parse("https://github.com/MobileGL-Dev/MobileGlues-release/releases")
-                        )
-                    )
-                }
-                launchMain()
-            }
+            .setPositiveButton("下载安装") { _, _ -> downloadMobileGlues() }
             .setNegativeButton("暂不") { _, _ -> launchMain() }
             .show()
         return true
+    }
+
+    /**
+     * 从 GitHub API 找最新 release 的 .apk 资产，直接下载后调起系统安装器。
+     * 失败回退到 release 页面，至少不让用户卡在启动页。
+     */
+    private fun downloadMobileGlues() {
+        val progress = MaterialAlertDialogBuilder(this)
+            .setTitle("正在下载 MobileGlues")
+            .setMessage("正在获取最新版本…")
+            .setCancelable(false)
+            .create()
+        progress.show()
+
+        lifecycleScope.launch {
+            val result = runCatching {
+                val json = org.json.JSONObject(
+                    fetchStringFromUrl(
+                        "https://api.github.com/repos/MobileGL-Dev/MobileGlues-release/releases/latest"
+                    )
+                )
+                val assets = json.optJSONArray("assets") ?: error("发布页没有资产列表")
+                var apkUrl: String? = null
+                var apkName: String? = null
+                for (i in 0 until assets.length()) {
+                    val asset = assets.optJSONObject(i) ?: continue
+                    val name = asset.optString("name")
+                    if (name.endsWith(".apk", ignoreCase = true)) {
+                        apkName = name
+                        apkUrl = asset.optString("browser_download_url")
+                        break
+                    }
+                }
+                val url = apkUrl ?: error("最新版本里没有找到 APK")
+                val dir = File(cacheDir, "mobileglues").apply { mkdirs() }
+                val target = File(dir, apkName ?: "MobileGlues.apk")
+                runCatching { if (target.exists()) target.delete() }
+                downloadFile(url = url, outputFile = target)
+                if (!target.isFile || target.length() <= 0L) error("下载的文件为空")
+                target
+            }
+
+            progress.dismiss()
+            result.onSuccess { apk ->
+                launchAfterMobileGlues = true
+                installMobileGluesApk(apk)
+            }.onFailure { e ->
+                Logger.warning(TAG, "MobileGlues 下载失败", e)
+                MaterialAlertDialogBuilder(this@SplashActivity)
+                    .setTitle("下载失败")
+                    .setMessage("${e.message ?: e.javaClass.simpleName}\n\n可以改从官方发布页手动下载。")
+                    .setCancelable(false)
+                    .setPositiveButton("打开网页") { _, _ ->
+                        openMobileGluesPage()
+                        launchMain()
+                    }
+                    .setNegativeButton("关闭") { _, _ -> launchMain() }
+                    .show()
+            }
+        }
+    }
+
+    private fun installMobileGluesApk(file: File) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            !packageManager.canRequestPackageInstalls()
+        ) {
+            pendingMobileGluesApk = file
+            MaterialAlertDialogBuilder(this)
+                .setTitle("需要安装权限")
+                .setMessage("请允许本应用安装未知应用，授权后返回会自动继续安装 MobileGlues。")
+                .setPositiveButton("去授权") { _, _ ->
+                    runCatching {
+                        startActivity(
+                            Intent(
+                                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                Uri.parse("package:$packageName"),
+                            )
+                        )
+                    }
+                }
+                .setNegativeButton("取消") { _, _ ->
+                    pendingMobileGluesApk = null
+                    launchMain()
+                }
+                .setCancelable(false)
+                .show()
+            return
+        }
+
+        runCatching {
+            val uri = FileProvider.getUriForFile(this, "$packageName.provider", file)
+            startActivity(
+                Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, "application/vnd.android.package-archive")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+            )
+            pendingMobileGluesApk = null
+            if (launchAfterMobileGlues) {
+                launchAfterMobileGlues = false
+                launchMain()
+            }
+        }.onFailure { e ->
+            Logger.warning(TAG, "无法调起 MobileGlues 安装器", e)
+            Toast.makeText(
+                this,
+                "无法打开安装程序：${e.message ?: e.javaClass.simpleName}",
+                Toast.LENGTH_LONG,
+            ).show()
+            launchMain()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val apk = pendingMobileGluesApk ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            packageManager.canRequestPackageInstalls()
+        ) {
+            installMobileGluesApk(apk)
+        }
+    }
+
+    private fun openMobileGluesPage() {
+        runCatching {
+            startActivity(
+                Intent(
+                    Intent.ACTION_VIEW,
+                    Uri.parse("https://github.com/MobileGL-Dev/MobileGlues-release/releases"),
+                )
+            )
+        }
     }
 
     private fun launchMain() {
