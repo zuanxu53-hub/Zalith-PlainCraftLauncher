@@ -512,6 +512,26 @@ private fun PclResourceDetail(
                             bottom = 18.dp,
                         ),
                     ) {
+                        // 同一个游戏版本下的多个文件通常共用同一组前置（同一个 Mod 的不同构建），
+                        // 以前每个文件都跟一块「必要前置资源」，一页里能重复十几遍。
+                        // 这里按平台 + 项目 + 适配版本去重，每个版本卡片只画一次。
+                        val versionDeps = remember(list) {
+                            val seen = HashSet<String>()
+                            list.flatMap { file ->
+                                file.platformDependencies().filter {
+                                    it.type == PlatformDependencyType.REQUIRED && it.projectId != null
+                                }
+                            }.filter { dep ->
+                                seen.add("${dep.platform}|${dep.projectId}|${dep.versionId}")
+                            }
+                        }
+                        if (versionDeps.isNotEmpty()) {
+                            PclRequiredDependencyBlock(
+                                dependencies = versionDeps,
+                                classes = classes,
+                            )
+                        }
+
                         list.forEach { file ->
                             PclResourceFileRow(
                                 file = file,
@@ -674,32 +694,27 @@ private fun PclResourceFileRow(
         file.platformFileName().takeIf { it.isNotBlank() },
     ).joinToString(" · ")
 
-    Column(modifier = Modifier.fillMaxWidth()) {
-        PclListItem(
-            title = file.platformDisplayName(),
-            info = info,
-            type = PclListItemType.Clickable,
-            height = 42.dp,
-            modifier = Modifier.fillMaxWidth(),
-            // 从「前置资源」跳进来时，被定位的那一版挂个小尾巴，一眼能认出「就是它」
-            titleSuffix = "适配版本".takeIf { highlighted },
-            buttons = listOf(
-                PclListItemButton(
-                    logo = PclIcons.resourceDownload,
-                    tooltip = installLabel,
-                    onClick = onInstall,
-                ),
+    PclListItem(
+        title = file.platformDisplayName(),
+        info = info,
+        type = PclListItemType.Clickable,
+        height = 42.dp,
+        modifier = Modifier.fillMaxWidth(),
+        // 从「前置资源」跳进来时，被定位的那一版挂个小尾巴，一眼能认出「就是它」
+        titleSuffix = "适配版本".takeIf { highlighted },
+        buttons = listOf(
+            PclListItemButton(
+                logo = PclIcons.resourceDownload,
+                tooltip = installLabel,
+                onClick = onInstall,
             ),
-            onClick = onInstall,
-        )
-        // 展开卡片后，紧跟着这个文件把它的必装前置列出来：
-        // 以前只有点下载时弹一次提示，关掉就没了；《Iris 要 Sodium》这种关系用户想回头看就看不到。
-        PclRequiredDependencyBlock(file = file, classes = classes)
-    }
+        ),
+        onClick = onInstall,
+    )
 }
 
 /**
- * 「必要前置资源（N）」—— 某个文件所依赖的必装前置清单。
+ * 「必要前置资源（N）」—— 一个游戏版本下所有文件合并去重后的必装前置清单。
  *
  * 条目直接可点：点进去打开的是那个前置**项目**的详情页，并且带上它适配的那个版本 Id
  * （[PlatformVersion.PlatformDependency.versionId]），进去后会自动停在对应版本上。
@@ -708,22 +723,18 @@ private fun PclResourceFileRow(
  */
 @Composable
 private fun PclRequiredDependencyBlock(
-    file: PlatformVersion,
+    dependencies: List<PlatformVersion.PlatformDependency>,
     classes: PlatformClasses,
 ) {
     val p = pclPalette
     val nav = LocalPclNav.current
-    val deps = remember(file) {
-        file.platformDependencies().filter {
-            it.type == PlatformDependencyType.REQUIRED && it.projectId != null
-        }
-    }
+    val deps = remember(dependencies) { dependencies }
     if (deps.isEmpty()) return
 
     // projectId -> 项目详情。依赖数据里只有 Id，名称/图标/下载量都得再查一次；
     // 查到一个就更新一次，不让整块等着最后一个请求回来。
-    var projects by remember(file) { mutableStateOf<Map<String, PlatformProject>>(emptyMap()) }
-    LaunchedEffect(file) {
+    var projects by remember(deps) { mutableStateOf<Map<String, PlatformProject>>(emptyMap()) }
+    LaunchedEffect(deps) {
         val loaded = LinkedHashMap<String, PlatformProject>()
         projects = loaded
         deps.forEach { dep ->
@@ -745,7 +756,7 @@ private fun PclRequiredDependencyBlock(
         deps.forEach { dep ->
             val pid = dep.projectId.orEmpty()
             val project = projects[pid]
-            key(pid) {
+            key("${dep.platform}|$pid|${dep.versionId}") {
                 PclResourceItem(
                     // 还没查到就先用项目 Id 顶着，别让条目空着或者消失
                     title = project?.platformTitle()?.takeIf { it.isNotBlank() } ?: "项目 $pid",
