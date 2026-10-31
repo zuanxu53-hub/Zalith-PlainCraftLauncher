@@ -48,6 +48,9 @@ import com.zalith.pcl.components.jre.Jre
 import com.zalith.pcl.components.jre.RuntimeProvisioner
 import com.zalith.pcl.components.jre.UnpackJnaTask
 import com.zalith.pcl.components.jre.UnpackJreTask
+import com.zalith.pcl.game.download.engine.DownloadEngine
+import com.zalith.pcl.game.download.engine.DownloadRequest
+import com.zalith.pcl.game.download.engine.DownloadStats
 import com.zalith.pcl.setting.AllSettings
 import com.zalith.pcl.ui.base.BaseAppCompatActivity
 import com.zalith.pcl.ui.pcl2.components.PclConfirmDialog
@@ -61,6 +64,10 @@ import com.zalith.pcl.utils.network.fetchStringFromUrl
 import com.zalith.pcl.viewmodel.SplashBackStackViewModel
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import java.io.File
@@ -748,12 +755,14 @@ private class MobileGluesInstallTask(
         val assets = json.optJSONArray("assets") ?: error("发布页没有资产列表")
         var apkUrl: String? = null
         var apkName: String? = null
+        var apkSize = -1L
         for (i in 0 until assets.length()) {
             val asset = assets.optJSONObject(i) ?: continue
             val name = asset.optString("name")
             if (name.endsWith(".apk", ignoreCase = true)) {
                 apkName = name
                 apkUrl = asset.optString("browser_download_url")
+                apkSize = asset.optLong("size", -1L)
                 break
             }
         }
@@ -761,8 +770,40 @@ private class MobileGluesInstallTask(
         val dir = File(appContext.cacheDir, "mobileglues").apply { mkdirs() }
         val target = File(dir, apkName ?: "MobileGlues.apk")
         runCatching { if (target.exists()) target.delete() }
-        updateMessage("正在下载 ${apkName ?: "MobileGlues.apk"}…")
-        downloadFile(url = url, outputFile = target)
+
+        val stats = DownloadStats()
+        coroutineScope {
+            val progress = launch {
+                while (isActive) {
+                    val done = stats.downloadedBytes
+                    val pct = if (apkSize > 0) {
+                        (done * 100 / apkSize).coerceIn(0, 100)
+                    } else {
+                        -1
+                    }
+                    updateMessage(
+                        if (pct >= 0) {
+                            "正在下载 ${apkName ?: "MobileGlues.apk"}… $pct%（${done / 1048576} / ${apkSize / 1048576} MB）"
+                        } else {
+                            "正在下载 ${apkName ?: "MobileGlues.apk"}… ${done / 1048576} MB"
+                        }
+                    )
+                    delay(200)
+                }
+            }
+            try {
+                DownloadEngine.download(
+                    request = DownloadRequest(
+                        urls = listOf(url),
+                        targetFile = target,
+                        expectedSize = apkSize,
+                    ),
+                    stats = stats,
+                )
+            } finally {
+                progress.cancelAndJoin()
+            }
+        }
         if (!target.isFile || target.length() <= 0L) error("下载的文件为空")
         updateMessage(null)
         onDownloaded(target)
