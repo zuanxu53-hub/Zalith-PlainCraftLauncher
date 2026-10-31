@@ -153,6 +153,7 @@ internal fun PclInstanceSavesPage(version: Version) {
             )
         },
         deleteTitle = "删除存档",
+        importSaveZip = true,
     )
 }
 
@@ -444,6 +445,8 @@ private fun PclInstanceFilePage(
     deleteTitle: String = "删除文件",
     /** 非空时显示「从文件导入」，并按这个类型校验扩展名。 */
     importKind: PclSharedResourceKind? = null,
+    /** 存档页：导入 zip 后解压成 `saves/<世界名>/`。 */
+    importSaveZip: Boolean = false,
 ) {
     val p = pclPalette
     val context = LocalContext.current
@@ -461,12 +464,18 @@ private fun PclInstanceFilePage(
     var deleting by remember { mutableStateOf<File?>(null) }
 
     // 从文件导入：直接选本机文件复制进当前实例对应目录，和「打开文件夹后手工拖进去」等价。
-    val importPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri == null || importKind == null) return@rememberLauncherForActivityResult
+    val canImport = importKind != null || importSaveZip
+    val importPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null || !canImport) return@rememberLauncherForActivityResult
         scope.launch {
-            val result = pclImportSharedResource(context, uri, dir, importKind)
-            result.onSuccess { file ->
-                PclHintHost.push("已导入「${file.name}」。", PclHintTheme.Green)
+            val result = if (importSaveZip) {
+                pclImportSaveZip(context, uri, dir)
+            } else {
+                pclImportSharedResource(context, uri, dir, importKind!!)
+                    .map { it.name }
+            }
+            result.onSuccess { name ->
+                PclHintHost.push("已导入「$name」。", PclHintTheme.Green)
                 token++
             }.onFailure {
                 PclHintHost.push("导入失败：${it.message ?: it.javaClass.simpleName}", PclHintTheme.Red)
@@ -530,8 +539,10 @@ private fun PclInstanceFilePage(
                     contentPadding = PaddingValues(start = 10.dp, top = 10.dp, end = 10.dp, bottom = 0.dp),
                     buttonsTopPadding = 20.dp,
                     moreButtons = buildList {
-                        if (importKind != null) {
-                            add(PclEmptyButton("从文件导入") { importPicker.launch("*/*") })
+                        if (canImport) {
+                            add(PclEmptyButton(if (importSaveZip) "导入存档" else "从文件导入") {
+                                importPicker.launch(arrayOf("*/*"))
+                            })
                         }
                         if (downloadIndex != null && downloadText != null) {
                             add(PclEmptyButton("打开文件夹") { openFolder(context, dir) })
@@ -560,8 +571,10 @@ private fun PclInstanceFilePage(
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(15.dp)) {
                 PclManageButton("打开文件夹", highlight = true) { openFolder(context, dir) }
-                if (importKind != null) {
-                    PclManageButton("从文件导入") { importPicker.launch("*/*") }
+                if (canImport) {
+                    PclManageButton(if (importSaveZip) "导入存档" else "从文件导入") {
+                        importPicker.launch(arrayOf("*/*"))
+                    }
                 }
                 PclManageButton("刷新") { token++ }
                 if (downloadIndex != null && downloadText != null) {

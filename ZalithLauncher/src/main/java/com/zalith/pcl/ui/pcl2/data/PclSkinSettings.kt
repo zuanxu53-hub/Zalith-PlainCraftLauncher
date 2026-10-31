@@ -196,13 +196,12 @@ object PclSkinSettings {
     /**
      * 实际生效的缩放系数。
      *
-     * 自动档把界面等比放大到「PCL 的 850×500 窗口占满当前窗口」为止，上限 [UI_SCALE_MAX]、
-     * 下限 1（手机窗口比 850×500 小，就保持原样，不做缩小 —— 缩小只会更看不清）。
+     * 「自动」固定按 75% 显示：不同机型不再按窗口尺寸算出大小不一的界面，
+     * 75% 下控件与字号都还能看清，同时能在一屏里放下更多内容。
      */
     fun resolveScale(windowWidthDp: Float, windowHeightDp: Float): Float {
         if (uiScale != UI_SCALE_AUTO) return uiScale / 100f
-        if (windowWidthDp <= 0f || windowHeightDp <= 0f) return 1f
-        return minOf(windowWidthDp / 850f, windowHeightDp / 500f).coerceIn(1f, UI_SCALE_MAX)
+        return 0.75f
     }
 
     fun load(context: Context) {

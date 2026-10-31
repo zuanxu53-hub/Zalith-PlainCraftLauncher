@@ -62,6 +62,40 @@ fun pclDisplayName(context: Context, uri: Uri): String? = runCatching {
  * 同名文件不覆盖：自动改成 `name (1).ext`，避免用户重复导入时把原来的文件顶掉。
  * 扩展名不符合 [kind] 时直接返回失败原因。
  */
+/**
+ * 导入存档 zip：先复制到缓存，再交给现有的 `pclInstallDownloadedSave` 解压到 saves/<name>/。
+ * 存档不能像 Mod 那样直接把 zip 丢进目录，游戏只认文件夹。
+ */
+suspend fun pclImportSaveZip(
+    context: Context,
+    uri: Uri,
+    savesDir: File,
+): Result<String> = withContext(Dispatchers.IO) {
+    runCatching {
+        val rawName = pclDisplayName(context, uri)
+            ?.substringAfterLast('/')
+            ?.takeIf { it.isNotBlank() }
+            ?: "imported_save.zip"
+        if (!rawName.endsWith(".zip", ignoreCase = true)) {
+            error("存档需要 zip 压缩包（游戏只识别解压后的存档文件夹）。")
+        }
+        val temp = File(context.cacheDir, rawName)
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            temp.outputStream().use { output -> input.copyTo(output) }
+        } ?: error("读不到所选文件，可能是文件管理器没有授予读取权限。")
+        if (!temp.isFile || temp.length() <= 0L) {
+            temp.delete()
+            error("存档压缩包为空或复制失败。")
+        }
+        try {
+            pclInstallDownloadedSave(zip = temp, savesDir = savesDir)
+            rawName.removeSuffix(".zip")
+        } finally {
+            temp.delete()
+        }
+    }
+}
+
 suspend fun pclImportSharedResource(
     context: Context,
     uri: Uri,
@@ -93,6 +127,13 @@ suspend fun pclImportSharedResource(
             target.outputStream().use { output -> input.copyTo(output) }
         } ?: error("读不到所选文件，可能是文件管理器没有授予读取权限。")
         if (!target.isFile || target.length() <= 0L) error("文件为空或复制失败。")
+        // OpenDocument 的授权默认只活到页面销毁；能持久化就存下来，减少跨应用 URI 的权限问题。
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            )
+        }
         target
     }
 }

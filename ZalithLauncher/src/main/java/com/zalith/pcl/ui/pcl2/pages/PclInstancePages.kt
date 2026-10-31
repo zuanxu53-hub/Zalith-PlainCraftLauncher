@@ -1374,7 +1374,7 @@ private fun PclInstanceModPage(version: Version) {
     }
 
     // 「从文件安装」：选一个 Mod 文件拷进 mods 目录（PCL 的拖入安装的等价入口）
-    val installPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+    val installPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             pclImportSharedResource(context, uri, modsDir, PclSharedResourceKind.MOD)
@@ -1442,7 +1442,7 @@ private fun PclInstanceModPage(version: Version) {
                     contentPadding = PaddingValues(start = 10.dp, top = 10.dp, end = 10.dp, bottom = 0.dp),
                     buttonsTopPadding = 20.dp,
                     moreButtons = listOf(
-                        PclEmptyButton("从文件安装") { installPicker.launch("*/*") },
+                        PclEmptyButton("从文件安装") { installPicker.launch(arrayOf("*/*")) },
                         PclEmptyButton("打开文件夹") { openFolder(context, modsDir) },
                     ),
                 )
@@ -1471,7 +1471,7 @@ private fun PclInstanceModPage(version: Version) {
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(15.dp)) {
                 PclManageButton("打开文件夹", highlight = true) { openFolder(context, modsDir) }
-                PclManageButton("从文件安装") { installPicker.launch("*/*") }
+                PclManageButton("从文件安装") { installPicker.launch(arrayOf("*/*")) }
                 PclManageButton("下载新 Mod") { nav.go(PclSection.Download) }
                 // PageInstanceMod.xaml.vb:270 —— 「全选」的文字永不变化，点一下在
                 // 「全选中」与「全不选」之间切换（ChangeAllSelected(SelectedMods.Count < 列表数)），
