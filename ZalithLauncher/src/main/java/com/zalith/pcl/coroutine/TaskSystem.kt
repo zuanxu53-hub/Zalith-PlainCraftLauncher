@@ -57,6 +57,11 @@ object TaskSystem {
                 if (th is CancellationException || th.isInterruptedIOException()) return@launch
                 task.onError(th)
             } finally {
+                // 网络超时/取消会在 catch 里提前 return，之前没有更新阶段，
+                // 任务列表就一直转圈，看起来像「卡住」。这里兜底收尾。
+                if (task.stage.value != TaskStage.COMPLETED) {
+                    task.updateStage(TaskStage.COMPLETED)
+                }
                 task.onFinally()
             }
         }.also { job ->
