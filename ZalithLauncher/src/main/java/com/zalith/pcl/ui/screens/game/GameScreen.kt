@@ -64,6 +64,7 @@ import com.movtery.inputmap.keycodes.LwjglGlfwKeycode
 import com.movtery.inputmap.keycodes.OPEN_CHAT
 import com.movtery.inputmap.keycodes.OPEN_CHAT_VALUE
 import com.movtery.layer_controller.ControlBoxLayout
+import com.movtery.layer_controller.LayerControllerConfig
 import com.movtery.layer_controller.data.HideLayerWhen
 import com.movtery.layer_controller.event.ClickEvent
 import com.movtery.layer_controller.event.EventHandler
@@ -594,6 +595,10 @@ fun GameScreen(
     }
     val editorViewModel = rememberEditorViewModel("ControlEditor_Times=${viewModel.editorRefresh}")
     val cursorMode by ZLBridgeStates.cursorMode.collectAsStateWithLifecycle()
+    val joystickForwardLock = AllSettings.joystickForwardLock.state
+    LaunchedEffect(joystickForwardLock) {
+        LayerControllerConfig.joystickForwardLockEnabled = joystickForwardLock
+    }
     val isGrabbing = remember(cursorMode) {
         cursorMode == CURSOR_DISABLED
     }
