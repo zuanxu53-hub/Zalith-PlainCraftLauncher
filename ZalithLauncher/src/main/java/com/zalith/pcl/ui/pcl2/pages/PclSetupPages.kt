@@ -1140,6 +1140,14 @@ fun PclSetupUiPage() {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     PclRadioBox(
+                        text = PclStrings.LangSetHomePageDefault,
+                        checked = PclAppearance.homeType == PclHomeType.DEFAULT,
+                        onCheckedChange = {
+                            PclAppearance.applyHomeType(PclHomeType.DEFAULT)
+                            PclAppearance.persist(context)
+                        },
+                    )
+                    PclRadioBox(
                         text = PclStrings.LangSetHomePageEmpty,
                         checked = PclAppearance.homeType == PclHomeType.EMPTY,
                         onCheckedChange = {
@@ -1227,6 +1235,7 @@ fun PclSetupUiPage() {
                 }
                 PclHint(
                     text = "设定后，「主页」版块的右侧会换成这个自定义主页（左边的账户与版本面板不变）。" +
+                            "「默认」显示提示条、你知道吗与启动日志；「侧边什么也没有」则右侧整块留空。" +
                             "「预设」里是 PCL 社区常用的主页；联网类预设需要网络，首次打开会稍慢。",
                     theme = PclHintTheme.Blue,
                 )
