@@ -794,13 +794,13 @@ fun PclSetupUiPage() {
     }
 
     PclContent {
+        // ---- 主题（PCL `PageSetupUI.xaml` 的 CardTheme）
+        // 实现在 PclThemeSection.kt：正式版是独立卡片「连点 35 次 + 密码解锁」，开发版是空函数。
+        PclThemeSection()
+
         // ---- 基础（PCL `PageSetupUI.xaml:16` 的 CardLauncher，Title 是 `LangSetTheme` =「基础」）
         PclCard(modifier = Modifier.fillMaxWidth(), title = "基础") {
             Column {
-                // ---- 主题
-                // 实现在 PclThemeSection.kt：正式版是「连点 35 次 + 密码解锁」，开发版是空函数。
-                PclThemeSection()
-
                 // ---- 界面缩放
                 // PCL 是桌面程序，字号跟着 Windows 的显示缩放走；Android 上没有这个入口，
                 // 所以这里补一档：整张界面（含字号）等比放大，字小到看不清笔画时直接调它。
