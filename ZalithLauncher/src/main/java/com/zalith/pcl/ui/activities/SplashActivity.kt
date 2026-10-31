@@ -50,6 +50,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import java.io.File
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -329,13 +330,54 @@ class SplashActivity : BaseAppCompatActivity() {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or
                     Intent.FLAG_ACTIVITY_SINGLE_TOP
 
+            val importType = resolveImportType(source)
+            // QQ / 微信这类分享方给的是自己的 FileProvider URI，授权只在分享瞬间有效，
+            // 转到 Pcl2Activity 后经常已经读不到（「找不到布局文件」）。
+            // 布局文件很小，先在启动页复制到应用缓存，再把 file:// URI 往后传。
+            val forwardUri = if (
+                importType == IMPORT_TYPE_CONTROLS ||
+                (importType == IMPORT_TYPE_AUTO &&
+                    source.type?.contains("json", ignoreCase = true) == true)
+            ) {
+                cacheSharedFile(uri)
+            } else {
+                uri
+            }
+
             putExtra(EXTRA_IMPORT_ACTION, source.action)
-            putExtra(EXTRA_IMPORT_URI, uri)
-            putExtra(EXTRA_IMPORT_TYPE, resolveImportType(source))
+            putExtra(EXTRA_IMPORT_URI, forwardUri)
+            putExtra(EXTRA_IMPORT_TYPE, importType)
         }
 
         startActivity(forward)
         return true
+    }
+
+    /**
+     * 把分享进来的小文件复制到应用缓存，返回自己的 file:// URI。
+     *
+     * 分享方的 content URI 往往只带一次性读取授权；跨 Activity 后 provider 已经拒绝访问。
+     * 复制失败时退回原 URI，至少保留原来的错误路径。
+     */
+    private fun cacheSharedFile(uri: Uri): Uri {
+        return runCatching {
+            val name = runCatching {
+                contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                    val index = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (index >= 0 && cursor.moveToFirst()) cursor.getString(index) else null
+                }
+            }.getOrNull()?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
+                ?: "shared_${System.currentTimeMillis()}.json"
+
+            val safeName = name.replace(Regex("[^0-9A-Za-z._\\-\\u4e00-\\u9fa5]"), "_")
+                .let { if (it.endsWith(".json", true)) it else "$it.json" }
+            val dir = File(cacheDir, "share_import").apply { mkdirs() }
+            val target = File(dir, "${System.currentTimeMillis()}_$safeName")
+            contentResolver.openInputStream(uri)?.use { input ->
+                target.outputStream().use { output -> input.copyTo(output) }
+            } ?: return@runCatching uri
+            if (target.length() > 0L) Uri.fromFile(target) else uri
+        }.getOrDefault(uri)
     }
 
     /**
