@@ -2023,7 +2023,10 @@ private fun PclSelectLeft() {
 
     // 「导入整合包」：本地压缩包 → ModpackImporter
     var importer by remember { mutableStateOf<ModpackImporter?>(null) }
-    val modpackPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+    // 用 OpenDocument + `*/*`：`.mrpack` 在多数文件管理器里被登记成
+    // `application/octet-stream`（甚至没有 MIME），只筛 `application/zip`
+    // 会把它直接藏起来 —— 这正是「改成 .zip 才能导入」的原因。
+    val modpackPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             runCatching {
                 val newImporter = ModpackImporter(
@@ -2197,7 +2200,7 @@ private fun PclSelectLeft() {
                 logo = PclIcons.selectAddModpack,
                 type = PclListItemType.Clickable,
                 height = 34.dp,
-                onClick = { modpackPicker.launch("application/zip") },
+                onClick = { modpackPicker.launch(arrayOf("*/*")) },
             )
         }
         Spacer(Modifier.height(10.dp))

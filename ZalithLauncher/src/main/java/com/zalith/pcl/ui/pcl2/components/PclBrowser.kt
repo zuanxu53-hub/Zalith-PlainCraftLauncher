@@ -91,6 +91,8 @@ fun PclWebOverlay(
     var loading by remember(page) { mutableStateOf(true) }
     // 内置浏览器把微软登录页跑挂时只交接一次，避免系统浏览器和内置页互相拉起
     var handedOffToBrowser by remember(page) { mutableStateOf(false) }
+    // 微软授权完成页会停在白屏；识别到「已完成」文案后自动关掉这一层
+    var autoClosed by remember(page) { mutableStateOf(false) }
 
     // 有网页时返回键先交给网页历史，退无可退才关掉这一层 ——
     // 与 Zalith 原生界面「退出网页页 = 退出登录」的语义一致。
@@ -190,6 +192,27 @@ fun PclWebOverlay(
                                         else "内置浏览器登录失败，请点右上角「浏览器打开」重试",
                                         Toast.LENGTH_LONG
                                     ).show()
+                                    // 交接成功后把白屏层收掉，别让用户困在这里
+                                    if (opened) view?.postDelayed({ onClose() }, 900)
+                                }
+
+                                // 微软的设备码授权成功页是一张没有交互的静态页，
+                                // 在 WebView 里经常只剩白底。读到「已完成」文案就直接
+                                // 关闭浮层；令牌轮询在后台继续，关页不会再取消登录。
+                                if (!autoClosed && url != null && isMicrosoftLoginPage(url)) {
+                                    view?.evaluateJavascript(
+                                        "(document.body && document.body.innerText) || ''"
+                                    ) { raw ->
+                                        if (!autoClosed && isMicrosoftLoginSuccessText(raw)) {
+                                            autoClosed = true
+                                            Toast.makeText(
+                                                context,
+                                                "微软授权已完成，正在返回启动器…",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                            view?.postDelayed({ onClose() }, 900)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -404,6 +427,25 @@ private fun openInSystemBrowser(context: Context, url: String): Boolean {
  */
 private fun isMicrosoftLoginFailurePage(url: String): Boolean =
     url.contains("login.live.com/oauth20_authorize.srf") && url.contains("res=error")
+
+/** 当前页是否属于微软登录域（只有这些页面才需要读「授权完成」文案）。 */
+private fun isMicrosoftLoginPage(url: String): Boolean {
+    val host = runCatching { Uri.parse(url).host.orEmpty() }.getOrDefault("")
+    return host.endsWith("microsoftonline.com") ||
+        host.endsWith("login.live.com") ||
+        host.endsWith("microsoft.com")
+}
+
+/** 微软设备码授权完成页的文案（中英文）。 */
+private fun isMicrosoftLoginSuccessText(raw: String): Boolean {
+    val text = raw.replace("\\u0027", "'").lowercase()
+    return text.contains("you're all set") ||
+        text.contains("you’re all set") ||
+        text.contains("you can close this window") ||
+        text.contains("你可以关闭此窗口") ||
+        text.contains("你可以关闭这个窗口") ||
+        text.contains("已完成登录")
+}
 
 /**
  * 把网页自己的底色清掉，让启动器的自定义背景透上来。
