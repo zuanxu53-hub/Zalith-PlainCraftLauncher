@@ -102,6 +102,7 @@ class SplashActivity : BaseAppCompatActivity() {
     private var pendingImportIntent: Intent? = null
 
     /** 已下载、等待「安装未知应用」授权后继续安装的 MobileGlues APK。 */
+    @Volatile
     private var pendingMobileGluesApk: File? = null
     /** 安装界面拉起后是否继续进入主界面。 */
     private var launchAfterMobileGlues = false
@@ -558,10 +559,8 @@ class SplashActivity : BaseAppCompatActivity() {
                 }
             )
             pendingMobileGluesApk = null
-            if (launchAfterMobileGlues) {
-                launchAfterMobileGlues = false
-                launchMain()
-            }
+            // 不能立刻 launchMain()：那会把刚拉起的系统安装页盖掉，
+            // 用户看到的就是「下载成功后没自动安装」。等从安装器返回再走 onResume。
         }.onFailure { e ->
             Logger.warning(TAG, "无法调起 MobileGlues 安装器", e)
             Toast.makeText(
@@ -575,11 +574,20 @@ class SplashActivity : BaseAppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        val apk = pendingMobileGluesApk ?: return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-            packageManager.canRequestPackageInstalls()
-        ) {
-            installMobileGluesApk(apk)
+        val apk = pendingMobileGluesApk
+        if (apk != null) {
+            // 从「安装未知应用」授权页回来：权限已给就继续安装
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                packageManager.canRequestPackageInstalls()
+            ) {
+                installMobileGluesApk(apk)
+            }
+            return
+        }
+        // 从系统安装器返回（无论装没装）才进入主界面
+        if (launchAfterMobileGlues) {
+            launchAfterMobileGlues = false
+            launchMain()
         }
     }
 
