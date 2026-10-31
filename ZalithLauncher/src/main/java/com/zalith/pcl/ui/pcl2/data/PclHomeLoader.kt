@@ -63,7 +63,7 @@ object PclHomeLoader {
             PclHomeType.PRESET -> resolvePreset()
             PclHomeType.LOCAL -> resolveLocal()
             PclHomeType.ONLINE ->
-                PclAppearance.homeNet.trim().takeIf { it.isNotBlank() }?.let { PclHomeEntry.Web(it) }
+                PclAppearance.homeNet.trim().takeIf { it.isNotBlank() }?.let { resolveOnline(it) }
             else -> null
         }
     }
@@ -90,6 +90,63 @@ object PclHomeLoader {
     }
 
     // ---------------------------------------------------------------- 本地文件
+
+    /**
+     * 联网主页。
+     *
+     * 用户常常直接粘 GitHub 仓库首页（PCL 社区主页大多托管在仓库里），
+     * 以前这里把 URL 原样丢给 WebView，结果右侧直接变成 GitHub 的 About 页面。
+     * 现在识别仓库：从默认分支根目录找 `.xaml` 主页文件，下载并转换；
+     * 真正的网页地址仍然走 WebView。
+     */
+    private fun resolveOnline(url: String): PclHomeEntry {
+        val blob = Regex("""^https?://github\.com/([^/]+)/([^/]+)/blob/[^/]+/(.+)$""")
+            .find(url)
+        if (blob != null) {
+            val raw = "https://raw.githubusercontent.com/${blob.groupValues[1]}/${blob.groupValues[2]}/${blob.groupValues[3]}"
+            return downloadAndConvert(raw)
+        }
+
+        val repo = Regex("""^https?://github\.com/([^/]+)/([^/?#]+)/?$""").find(url)
+        if (repo != null) {
+            return resolveGitHubRepo(repo.groupValues[1], repo.groupValues[2])
+        }
+        return downloadAndConvert(url)
+    }
+
+    /** 在仓库根目录里找主页 XAML；找不到就给明确错误，绝不再把 GitHub 页面塞进主页。 */
+    private fun resolveGitHubRepo(owner: String, repo: String): PclHomeEntry {
+        val api = "https://api.github.com/repos/$owner/$repo/contents/"
+        val json = fetchJson(api)
+            ?: return PclHomeEntry.Html(
+                errorHtml("https://github.com/$owner/$repo", "无法读取仓库文件列表（可能触发了 GitHub 限流）")
+            )
+        val xamlFiles = runCatching {
+            val array = org.json.JSONArray(json)
+            (0 until array.length()).mapNotNull { index ->
+                val item = array.optJSONObject(index) ?: return@mapNotNull null
+                val name = item.optString("name")
+                if (item.optString("type") == "file" && name.endsWith(".xaml", true)) {
+                    name to item.optString("download_url")
+                } else null
+            }
+        }.getOrDefault(emptyList())
+
+        if (xamlFiles.isEmpty()) {
+            return PclHomeEntry.Html(
+                errorHtml(
+                    "https://github.com/$owner/$repo",
+                    "仓库根目录没有 .xaml 主页文件。请填写主页文件直链，或把 XAML 放到仓库根目录。"
+                )
+            )
+        }
+        val preferred = xamlFiles.firstOrNull {
+            it.first.equals("homepage.xaml", true) || it.first.equals("index.xaml", true)
+        } ?: xamlFiles.first()
+        val content = fetch(preferred.second, UA_PCL) ?: fetch(preferred.second, UA_BROWSER)
+            ?: return PclHomeEntry.Html(errorHtml(preferred.second, "主页文件下载失败"))
+        return PclHomeEntry.Html(PclHomeXaml.convertToHtml(content))
+    }
 
     private fun resolveLocal(): PclHomeEntry? {
         val path = PclAppearance.homeLocalFile ?: return null
@@ -132,6 +189,17 @@ object PclHomeLoader {
     }
 
     /** 用指定 UA 下载文本内容；HTTP 非 2xx 或网络异常都返回 null（由调用方换 UA 重试）。 */
+    private fun fetchJson(url: String): String? = runCatching {
+        val conn = URL(url).openConnection() as HttpURLConnection
+        conn.connectTimeout = CONNECT_TIMEOUT
+        conn.readTimeout = READ_TIMEOUT
+        conn.instanceFollowRedirects = true
+        conn.setRequestProperty("User-Agent", UA_BROWSER)
+        conn.setRequestProperty("Accept", "application/vnd.github+json")
+        if (conn.responseCode !in 200..299) error("HTTP ${conn.responseCode}")
+        conn.inputStream.use { input -> input.readBytes().toString(Charsets.UTF_8) }
+    }.getOrNull()
+
     private fun fetch(url: String, ua: String): String? = runCatching {
         val conn = URL(url).openConnection() as HttpURLConnection
         conn.connectTimeout = CONNECT_TIMEOUT
