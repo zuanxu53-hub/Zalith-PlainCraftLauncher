@@ -429,23 +429,19 @@ private fun PclRenderingCard() {
             SettingCheck("使用系统 Vulkan 驱动（Zink）", AllSettings.zinkPreferSystemDriver)
             Spacer(Modifier.height(6.dp))
             SetupRow("音频缓冲") {
+                val audioOptions = listOf(0 to "低延迟", 1 to "均衡", 2 to "稳定")
                 Column {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        listOf(0 to "低延迟", 1 to "均衡", 2 to "稳定").forEach { (value, label) ->
-                            PclButton(
-                                text = label,
-                                colorState = if (AllSettings.audioBufferLevel.state == value) {
-                                    PclColorState.Highlight
-                                } else {
-                                    PclColorState.Normal
-                                },
-                                onClick = {
-                                    AllSettings.audioBufferLevel.save(value)
-                                    PclHintHost.push("已切换音频缓冲，下次启动游戏生效。", PclHintTheme.Green)
-                                },
-                            )
-                        }
-                    }
+                    PclComboBox(
+                        items = audioOptions,
+                        selected = audioOptions.firstOrNull { it.first == AllSettings.audioBufferLevel.state }
+                            ?: audioOptions[1],
+                        label = { it?.second.orEmpty() },
+                        modifier = Modifier.fillMaxWidth(),
+                        onSelect = {
+                            AllSettings.audioBufferLevel.save(it.first)
+                            PclHintHost.push("已切换音频缓冲，下次启动游戏生效。", PclHintTheme.Green)
+                        },
+                    )
                     Spacer(Modifier.height(8.dp))
                     PclHint(
                         text = "声音比画面慢半拍时选「低延迟」（缓冲约 21ms）；" +
