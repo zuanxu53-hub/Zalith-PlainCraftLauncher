@@ -918,18 +918,28 @@ fun PclSetupUiPage() {
                     PclButton(
                         text = PclStrings.LangSetBackgroundPicRefresh,
                         onClick = {
-                            PclAppearance.refreshBackground(context)
+                            val ok = PclAppearance.refreshBackground(context)
                             PclAppearance.persist(context)
                             PclImageLoader.invalidate()
+                            if (ok) {
+                                PclHintHost.push("已换一张背景图片。", PclHintTheme.Green)
+                            } else {
+                                PclHintHost.push(
+                                    "背景文件夹里没有图片了，先用「选择背景图片」导入一张。",
+                                    PclHintTheme.Red,
+                                )
+                            }
                         },
                     )
                     PclButton(
                         text = PclStrings.LangSetBackgroundPicEmpty,
                         colorState = PclColorState.Red,
                         onClick = {
-                            PclAppearance.clearBackground()
+                            // 连同文件一起删掉，否则「刷新」或者重启又会把它抽回来
+                            PclAppearance.clearBackground(context)
                             PclAppearance.persist(context)
                             PclImageLoader.invalidate()
+                            PclHintHost.push("背景图片已删除。", PclHintTheme.Green)
                         },
                     )
                 }
@@ -939,7 +949,9 @@ fun PclSetupUiPage() {
                             "背景模糊是启动器自己实现的高斯模糊（分层卷积，CPU 预先算好再交给 GPU 放大），" +
                             "所以不依赖 Android 12 的实时模糊，各版本表现一致。" +
                             "「填充文件夹」这套 PCL 的做法在 Android 上换成了「选择背景图片」：" +
-                            "图片会被复制进应用目录的 `PCL/Background` 里，之后「刷新背景图片」会随机抽一张。",
+                            "图片会被复制进应用目录的 `PCL/Background` 里，之后「刷新背景图片」会随机抽一张。" +
+                            "「清空背景图片」会把当前这张从文件夹里删掉，不会在重启后又被抽回来；" +
+                            "文件夹里如果还有别的图，仍可以用「刷新背景图片」换着用。",
                     theme = PclHintTheme.Blue,
                 )
             }

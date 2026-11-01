@@ -111,6 +111,10 @@ class SplashActivity : BaseAppCompatActivity() {
 
     private val backStackViewModel: SplashBackStackViewModel by viewModels()
 
+    companion object {
+        private const val KEY_MG_DECLINED = "mobileglues_declined"
+    }
+
     /** 用 startActivityForResult 等安装器真正返回，避免 onResume 被误触发后盖掉安装页。 */
     private val installerLauncher = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
@@ -128,12 +132,11 @@ class SplashActivity : BaseAppCompatActivity() {
         initUnpackItems()
         checkAllTask()
 
+        // 每次启动都重新查一遍有没有装：装了就不再问；
+        // 没装的话，只有用户明确点过「不安装」才永久闭嘴。
+        // 这样「选了安装但装到一半取消了」下次启动会再问一次，不会永远错过。
         val prefs = getSharedPreferences("pcl2.mobileglues", MODE_PRIVATE)
-        val mgInstalled = runCatching {
-            packageManager.getPackageInfo("com.fcl.plugin.mobileglues", 0)
-            true
-        }.getOrDefault(false)
-        askMobileGlues = !mgInstalled && !prefs.getBoolean("splash_asked_v2", false)
+        askMobileGlues = !isMobileGluesInstalled() && !prefs.getBoolean(KEY_MG_DECLINED, false)
 
         if (!askMobileGlues && checkTasksToMain()) return
         setContent {
@@ -155,7 +158,8 @@ class SplashActivity : BaseAppCompatActivity() {
                     title = "是否安装 MobileGlues 渲染器？",
                     content = "MobileGlues 可以提升部分机型的游戏渲染性能。\n\n" +
                         "选择「安装」后，它会加入「需要安装的内容」，点「同意并安装」时" +
-                        "自动从 GitHub 下载并调起系统安装器。",
+                        "自动从 GitHub 下载并调起系统安装器；如果这次没装成功，下次启动还会再问。\n\n" +
+                        "选择「不安装」后，以后启动不再提示。",
                     confirmText = "安装",
                     dismissText = "不安装",
                     dismissOnOutsideClick = false,
@@ -166,11 +170,22 @@ class SplashActivity : BaseAppCompatActivity() {
         }
     }
 
+    /** 每次启动都查一遍，别缓存：用户可能刚刚卸载了插件。 */
+    private fun isMobileGluesInstalled(): Boolean = runCatching {
+        packageManager.getPackageInfo("com.fcl.plugin.mobileglues", 0)
+        true
+    }.getOrDefault(false)
+
     private fun resolveMobileGluesChoice(install: Boolean) {
         getSharedPreferences("pcl2.mobileglues", MODE_PRIVATE)
             .edit()
-            .putBoolean("splash_asked_v2", true)
-            .putBoolean("prompted", true)
+            .apply {
+                // 只有「不安装」才记成永久拒绝；选「安装」不记，
+                // 万一下次启动发现还是没装（安装器被取消/失败），会再问一次。
+                if (!install) putBoolean(KEY_MG_DECLINED, true)
+                putBoolean("splash_asked_v2", true)
+                putBoolean("prompted", true)
+            }
             .apply()
         askMobileGlues = false
         if (install) addMobileGluesItem()

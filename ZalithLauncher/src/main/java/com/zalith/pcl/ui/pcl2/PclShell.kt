@@ -334,7 +334,8 @@ fun PclMainScreen(
         PclAppearance.load(context)
         // 没记过背景图时，按 PCL 的行为要在 PCL/Background 里随机取一张。
         // 列目录是**磁盘 IO**，放到 IO 线程做：背景图一多，这一步能让「打开启动器」明显卡一下。
-        if (PclAppearance.backgroundImage == null) {
+        // 用户主动清空过的就别再抽了，否则「删掉的背景」重启后又会自己回来。
+        if (PclAppearance.backgroundImage == null && !PclAppearance.backgroundCleared) {
             PclAppearance.applyResolvedBackground(
                 withContext(Dispatchers.IO) { PclAppearance.resolveBackgroundPath(context) },
             )

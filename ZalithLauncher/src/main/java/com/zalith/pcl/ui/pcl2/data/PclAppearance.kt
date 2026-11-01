@@ -37,6 +37,7 @@ import androidx.compose.runtime.setValue
 import com.zalith.pcl.setting.launcherMMKV
 import com.zalith.pcl.ui.pcl2.PclHintHost
 import com.zalith.pcl.ui.pcl2.components.PclHintTheme
+import com.zalith.pcl.utils.logging.Logger
 import java.io.File
 import java.util.Locale
 
@@ -77,6 +78,11 @@ object PclAppearance {
     /** 认作「背景音乐」的扩展名。列表筛选与导入命名共用这一份。 */
     private val MUSIC_EXTENSIONS = setOf("mp3", "ogg", "wav", "m4a", "aac", "flac", "opus")
 
+    private const val TAG = "PclAppearance"
+
+    /** KEY_BG_IMAGE 的特殊值：用户主动清空过背景，别在启动时自动随机取图。 */
+    private const val BG_CLEARED = "__cleared__"
+
     private const val KEY_BG_SUIT = "pcl2.ui.backgroundSuit"
     private const val KEY_BG_IMAGE = "pcl2.ui.backgroundImage"
     private const val KEY_LOGO_IMAGE = "pcl2.ui.logoImage"
@@ -116,6 +122,17 @@ object PclAppearance {
     var backgroundImage by mutableStateOf<String?>(null)
         private set
 
+    /**
+     * 用户是否**主动清空**过背景图。
+     *
+     * 为什么需要这个标记：PCL 的行为是「没记过背景图时，打开启动器随机取一张」。
+     * 但「主动清空」和「从没设置过」在存储里都是空值，两者混在一起，
+     * 用户清空背景后重启启动器，图片又会被随机抽回来 —— 看起来就是「删不掉」。
+     * 有标记之后：清空过就老老实实没有背景，只有用户自己点「刷新背景图片」才会再抽。
+     */
+    var backgroundCleared by mutableStateOf(false)
+        private set
+
     val hasBackground: Boolean get() = backgroundImage?.let { File(it).isFile } == true
 
     fun applyBackgroundSuit(value: PclBackgroundSuit) {
@@ -130,8 +147,11 @@ object PclAppearance {
      * 但别在打开启动器的主线程路径上直接调 —— 那条路径走
      * [resolveBackgroundPath] + [applyResolvedBackground] 的组合。
      */
-    fun refreshBackground(context: Context) {
-        backgroundImage = resolveBackgroundPath(context)
+    fun refreshBackground(context: Context): Boolean {
+        val path = resolveBackgroundPath(context)
+        backgroundImage = path
+        if (path != null) backgroundCleared = false
+        return path != null
     }
 
     /**
@@ -150,11 +170,33 @@ object PclAppearance {
     /** 把 [resolveBackgroundPath]（或任何来源）算出来的路径落到状态上。 */
     fun applyResolvedBackground(path: String?) {
         backgroundImage = path
+        if (path != null) backgroundCleared = false
     }
 
-    /** `BtnBackgroundClear` —— 清空背景图片。 */
-    fun clearBackground() {
+    /**
+     * `BtnBackgroundClear` —— 清空背景图片，**并删掉当前这张图**。
+     *
+     * 只把状态置空是不够的：图片还留在 `PCL/Background` 里，
+     * 一按「刷新背景图片」或者重启启动器，它又会被随机抽回来，
+     * 用户看到的就是「删了还能刷新出来」。
+     */
+    fun clearBackground(context: Context) {
+        val current = backgroundImage
         backgroundImage = null
+        backgroundCleared = true
+        deleteBackgroundFile(context, current)
+    }
+
+    /** 删除背景文件夹里的一张图；只认自己目录下的文件，别误删外部路径。 */
+    private fun deleteBackgroundFile(context: Context, path: String?) {
+        if (path.isNullOrBlank()) return
+        runCatching {
+            val root = backgroundDir(context).canonicalFile
+            val target = File(path).canonicalFile
+            if (target.parentFile == root && target.isFile) {
+                if (!target.delete()) Logger.warning(TAG, "删除背景图失败：${target.absolutePath}")
+            }
+        }.onFailure { Logger.warning(TAG, "删除背景图出错：${it.message}") }
     }
 
     /**
@@ -165,6 +207,7 @@ object PclAppearance {
         val target = importInto(context, uri, backgroundDir(context), name ?: "background.png")
             ?: return false
         backgroundImage = target.absolutePath
+        backgroundCleared = false
         return true
     }
 
@@ -425,7 +468,9 @@ object PclAppearance {
     fun load(context: Context) {
         val mmkv = launcherMMKV()
         backgroundSuit = PclBackgroundSuit.of(mmkv.getInt(KEY_BG_SUIT, 0))
-        backgroundImage = mmkv.getString(KEY_BG_IMAGE, null)?.takeIf { it.isNotBlank() }
+        val storedBg = mmkv.getString(KEY_BG_IMAGE, null)
+        backgroundCleared = storedBg == BG_CLEARED
+        backgroundImage = if (backgroundCleared) null else storedBg?.takeIf { it.isNotBlank() }
         logoImage = mmkv.getString(KEY_LOGO_IMAGE, null)?.takeIf { it.isNotBlank() }
         musicRandom = mmkv.getBoolean(KEY_MUSIC_RANDOM, true)
         musicAuto = mmkv.getBoolean(KEY_MUSIC_AUTO, false)
@@ -457,7 +502,10 @@ object PclAppearance {
     fun persist(context: Context) {
         launcherMMKV().apply {
             putInt(KEY_BG_SUIT, backgroundSuit.value)
-            putString(KEY_BG_IMAGE, backgroundImage ?: "")
+            putString(KEY_BG_IMAGE, when {
+                backgroundCleared -> BG_CLEARED
+                else -> backgroundImage ?: ""
+            })
             putString(KEY_LOGO_IMAGE, logoImage ?: "")
             putBoolean(KEY_MUSIC_RANDOM, musicRandom)
             putBoolean(KEY_MUSIC_AUTO, musicAuto)
