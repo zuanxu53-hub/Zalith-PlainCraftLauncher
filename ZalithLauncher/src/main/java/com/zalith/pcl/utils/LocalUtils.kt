@@ -238,16 +238,30 @@ fun getDisplayFriendlyRes(displaySideRes: Int, scaling: Float): Int {
     return display
 }
 
-fun isAdrenoGPU(): Boolean {
+/**
+ * GPU 厂商大类。
+ *
+ * 只区分「渲染器真正在意的几种」：Freedreno 要 Adreno（高通），
+ * Panfrost 要 Mali（ARM）。其余归到 [Unknown]，由调用方决定怎么处理。
+ */
+enum class GpuFamily { Qualcomm, Mali, PowerVR, Unknown }
+
+/**
+ * 读一次 `GL_VENDOR` / `GL_RENDERER`。
+ *
+ * 失败（拿不到 EGL 上下文）返回 null —— 部分老机型连 GL 上下文都建不出来，
+ * 那种情况下不该把「检测不到」当成「不兼容」。
+ */
+private fun readGlesInfo(): Pair<String?, String?>? {
     val eglDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
     if (eglDisplay == EGL14.EGL_NO_DISPLAY) {
         Logger.error(TAG, "Failed to get EGL display")
-        return false
+        return null
     }
 
     if (!EGL14.eglInitialize(eglDisplay, null, 0, null, 0)) {
         Logger.error(TAG, "Failed to initialize EGL")
-        return false
+        return null
     }
 
     val eglAttributes = intArrayOf(
@@ -270,7 +284,7 @@ fun isAdrenoGPU(): Boolean {
     ) {
         EGL14.eglTerminate(eglDisplay)
         Logger.error(TAG, "Failed to choose an EGL config")
-        return false
+        return null
     }
 
     val contextAttributes = intArrayOf(
@@ -288,7 +302,7 @@ fun isAdrenoGPU(): Boolean {
     if (context == EGL14.EGL_NO_CONTEXT) {
         EGL14.eglTerminate(eglDisplay)
         Logger.error(TAG, "Failed to create EGL context")
-        return false
+        return null
     }
 
     if (!EGL14.eglMakeCurrent(
@@ -301,14 +315,11 @@ fun isAdrenoGPU(): Boolean {
         EGL14.eglDestroyContext(eglDisplay, context)
         EGL14.eglTerminate(eglDisplay)
         Logger.error(TAG, "Failed to make EGL context current")
-        return false
+        return null
     }
 
     val vendor = GLES20.glGetString(GLES20.GL_VENDOR)
     val renderer = GLES20.glGetString(GLES20.GL_RENDERER)
-    val isAdreno = vendor != null && renderer != null &&
-            vendor.equals("Qualcomm", ignoreCase = true) &&
-            renderer.contains("adreno", ignoreCase = true)
 
     // Cleanup
     EGL14.eglMakeCurrent(
@@ -320,8 +331,55 @@ fun isAdrenoGPU(): Boolean {
     EGL14.eglDestroyContext(eglDisplay, context)
     EGL14.eglTerminate(eglDisplay)
 
+    return vendor to renderer
+}
+
+fun isAdrenoGPU(): Boolean {
+    val info = readGlesInfo() ?: return false
+    val vendor = info.first
+    val renderer = info.second
+    val isAdreno = vendor != null && renderer != null &&
+            vendor.equals("Qualcomm", ignoreCase = true) &&
+            renderer.contains("adreno", ignoreCase = true)
     Logger.debug(TAG, "Running on Adreno GPU: $isAdreno")
     return isAdreno
+}
+
+/**
+ * 当前设备的 GPU 厂商大类，用于判断渲染器能不能跑。
+ *
+ * 判据是 `GL_VENDOR` + `GL_RENDERER` 两个字符串：
+ * 高通写 `Qualcomm` / 名字里带 `Adreno`；ARM 写 `ARM` / 名字里带 `Mali`；
+ *  Imagination 写 `Imagination Technologies` / 名字里带 `PowerVR`。
+ */
+fun gpuFamily(): GpuFamily {
+    val info = readGlesInfo()
+    if (info == null) {
+        // 上下文都建不出来：可能是驱动坏了，也可能是不支持 GLES2 的老机。
+        // 这种情况下不武断判定成不兼容，交给调用方按「未知」处理。
+        return GpuFamily.Unknown
+    }
+    val vendor = info.first.orEmpty()
+    val renderer = info.second.orEmpty()
+    val family = when {
+        vendor.contains("qualcomm", true) || renderer.contains("adreno", true) ->
+            GpuFamily.Qualcomm
+        vendor.contains("arm", true) || renderer.contains("mali", true) ->
+            GpuFamily.Mali
+        vendor.contains("imagination", true) || renderer.contains("powervr", true) ->
+            GpuFamily.PowerVR
+        else -> GpuFamily.Unknown
+    }
+    Logger.debug(TAG, "GPU: vendor=$vendor renderer=$renderer family=$family")
+    return family
+}
+
+/** 人类可读的 GPU 名称，用在提示里（检测不到就返回「未知」）。 */
+fun gpuDisplayName(): String {
+    val info = readGlesInfo() ?: return "未知"
+    val renderer = info.second?.takeIf { it.isNotBlank() }
+    val vendor = info.first?.takeIf { it.isNotBlank() }
+    return renderer ?: vendor ?: "未知"
 }
 
 fun killProgress() {

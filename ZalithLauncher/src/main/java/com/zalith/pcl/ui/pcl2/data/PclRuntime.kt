@@ -27,6 +27,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import com.zalith.pcl.bridge.LoggerBridge
+import com.zalith.pcl.game.renderer.RendererGpuCompat
 import com.zalith.pcl.utils.logging.Logger
 import com.zalith.pcl.coroutine.Task
 import com.zalith.pcl.coroutine.TaskStage
@@ -729,6 +730,20 @@ class PclRuntime(
     private fun launchVersion(version: Version, quickPlay: QuickPlay?) {
         if (AccountsManager.currentAccountFlow.value == null) return
         if (isLaunching) return
+
+        // 渲染器和 GPU 厂商对不上时先拦住：Freedreno 要 Adreno、Panfrost 要 Mali，
+        // 选错的话原生层直接 SIGSEGV，日志里只有一串地址，用户根本看不出是渲染器的问题。
+        // 检测不到厂商时 warningFor 返回 null，不会误伤。
+        val rendererWarning = runCatching {
+            RendererGpuCompat.warningFor(version.getRenderer())
+        }.getOrNull()
+        if (rendererWarning != null) {
+            pendingError = ErrorViewModel.ThrowableMessage(
+                title = androidText("渲染器与设备不匹配"),
+                message = androidText(rendererWarning),
+            )
+            return
+        }
 
         // 每次都重写：上一次「进服务器」的残留绝不能带进这一次普通启动
         version.quickPlaySingle = quickPlay

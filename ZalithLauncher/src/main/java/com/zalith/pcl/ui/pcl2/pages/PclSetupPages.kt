@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Zalith Launcher 2 — PCL2 UI port
  *
  * 设置页的四张子页面，沿用 PCL2 原始 XAML 的卡片结构与行标签：
@@ -58,6 +58,7 @@ import com.materialkolor.PaletteStyle
 import com.zalith.pcl.game.download.assets.platform.Platform
 import com.zalith.pcl.game.plugin.driver.DriverPluginManager
 import com.zalith.pcl.game.plugin.renderer_v2.RendererV2Data
+import com.zalith.pcl.game.renderer.RendererGpuCompat
 import com.zalith.pcl.game.renderer.Renderers
 import com.zalith.pcl.game.version.installed.GRAPHICS_API_CHOICES
 import com.zalith.pcl.game.version.installed.GraphicsApi
@@ -362,7 +363,14 @@ private fun PclRenderingCard() {
                         // PclComboBox 的 label 收到的是可空项（列表里允许出现 null），
                         // 所以这里要先兜住 null 再查名字。
                         label = { id -> id?.let { rendererNames[it] ?: it }.orEmpty() },
-                        onSelect = { AllSettings.renderer.save(it) },
+                        onSelect = { id ->
+                            AllSettings.renderer.save(id)
+                            // 选到和 GPU 厂商不符的渲染器时立刻说清楚：
+                            // 这类组合会在原生层崩，而不是在启动器里报错。
+                            RendererGpuCompat.warningFor(id)?.let { msg ->
+                                PclHintHost.push(msg, PclHintTheme.Red)
+                            }
+                        },
                     )
                     // 只有「选中新一代渲染器插件 + 它确实有可配置项」时才出现，和原生一致
                     if (rendererEnvUnits != null) {
