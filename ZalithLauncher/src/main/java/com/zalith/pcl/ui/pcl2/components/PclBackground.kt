@@ -31,6 +31,7 @@ package com.zalith.pcl.ui.pcl2.components
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -51,6 +52,8 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.media3.ui.AspectRatioFrameLayout
+import com.zalith.pcl.ui.components.VideoPlayer
 import com.zalith.pcl.setting.AllSettings
 import com.zalith.pcl.ui.pcl2.data.PclAppearance
 import com.zalith.pcl.ui.pcl2.data.PclBackgroundSuit
@@ -324,6 +327,40 @@ object PclGaussianBlur {
             }
         }
     }
+}
+
+/**
+ * 动态背景层（视频）。
+ *
+ * 复用 [VideoPlayer]（ExoPlayer + TextureView 版式的 PlayerView）：
+ * 循环、静音、`RESIZE_MODE_ZOOM` 铺满，切到后台由播放器自己暂停。
+ *
+ * 为什么不用 SurfaceView：SurfaceView 画在窗口 surface **下面**，
+ * 启动器的渐变底和界面内容会把它整块盖住，等于看不见；
+ * TextureView 参与正常的视图合成，才能当「垫在最底下」的背景。
+ *
+ * 视频不做模糊：逐帧高斯模糊代价太高，而且动态背景本来就是给「看得见」用的。
+ */
+@Composable
+fun PclBackgroundVideoLayer(
+    modifier: Modifier = Modifier,
+    opacityPercent: Int,
+) {
+    val path = PclAppearance.backgroundVideo
+    if (path.isNullOrBlank() || !File(path).isFile) return
+
+    val alpha = (opacityPercent / 100f).coerceIn(0.05f, 1f)
+
+    VideoPlayer(
+        videoUri = Uri.fromFile(File(path)),
+        modifier = modifier.graphicsLayer { this.alpha = alpha },
+        autoPlay = true,
+        loop = true,
+        muted = true,
+        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+        // 换了视频要重新 setMediaItem，用路径当 key
+        refreshTrigger = path,
+    )
 }
 
 /**

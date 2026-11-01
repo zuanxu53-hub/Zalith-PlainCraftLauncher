@@ -738,6 +738,18 @@ fun PclSetupUiPage() {
         }
     }
 
+    // 「选择动态背景」：把视频复制进 `PCL/Background`，之后当循环静音背景播。
+    val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val ok = PclAppearance.importBackgroundVideo(context, uri, queryDisplayName(context, uri))
+        if (ok) {
+            PclAppearance.persist(context)
+            PclHintHost.push("动态背景已设置（循环播放、静音）。", PclHintTheme.Green)
+        } else {
+            PclHintHost.push("动态背景导入失败，换个视频格式试试。", PclHintTheme.Red)
+        }
+    }
+
     // 「更改图片」（标题栏）：`UiLogoType = 3`
     val logoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -942,6 +954,20 @@ fun PclSetupUiPage() {
                             PclHintHost.push("背景图片已删除。", PclHintTheme.Green)
                         },
                     )
+                    PclButton(
+                        text = "选择动态背景",
+                        colorState = PclColorState.Highlight,
+                        onClick = { videoPicker.launch("video/*") },
+                    )
+                    PclButton(
+                        text = "清除动态背景",
+                        colorState = PclColorState.Red,
+                        onClick = {
+                            PclAppearance.clearBackgroundVideo(context)
+                            PclAppearance.persist(context)
+                            PclHintHost.push("动态背景已删除。", PclHintTheme.Green)
+                        },
+                    )
                 }
                 PclHint(
                     text = "「不透明度」与「背景模糊」用的是 Zalith 的同名设置项（`launcherBackgroundOpacity` / " +
@@ -951,7 +977,9 @@ fun PclSetupUiPage() {
                             "「填充文件夹」这套 PCL 的做法在 Android 上换成了「选择背景图片」：" +
                             "图片会被复制进应用目录的 `PCL/Background` 里，之后「刷新背景图片」会随机抽一张。" +
                             "「清空背景图片」会把当前这张从文件夹里删掉，不会在重启后又被抽回来；" +
-                            "文件夹里如果还有别的图，仍可以用「刷新背景图片」换着用。",
+                            "文件夹里如果还有别的图，仍可以用「刷新背景图片」换着用。\n" +
+                            "「选择动态背景」可以选一段视频（mp4 / webm 等）当循环播放的静音背景：" +
+                            "设了动态背景就以视频为准，清掉它会自动退回图片背景；视频不做模糊。",
                     theme = PclHintTheme.Blue,
                 )
             }

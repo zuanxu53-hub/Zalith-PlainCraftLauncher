@@ -85,6 +85,7 @@ object PclAppearance {
 
     private const val KEY_BG_SUIT = "pcl2.ui.backgroundSuit"
     private const val KEY_BG_IMAGE = "pcl2.ui.backgroundImage"
+    private const val KEY_BG_VIDEO = "pcl2.ui.backgroundVideo"
     private const val KEY_LOGO_IMAGE = "pcl2.ui.logoImage"
     private const val KEY_MUSIC_RANDOM = "pcl2.ui.musicRandom"
     private const val KEY_MUSIC_AUTO = "pcl2.ui.musicAuto"
@@ -132,6 +133,17 @@ object PclAppearance {
      */
     var backgroundCleared by mutableStateOf(false)
         private set
+
+    /**
+     * 动态背景（视频）的绝对路径；为空表示没有。
+     *
+     * 和图片背景是两套独立的东西：视频优先显示，图片留着不动，
+     * 清掉视频就会退回图片背景，不用重新选一次。
+     */
+    var backgroundVideo by mutableStateOf<String?>(null)
+        private set
+
+    val hasBackgroundVideo: Boolean get() = backgroundVideo?.let { File(it).isFile } == true
 
     val hasBackground: Boolean get() = backgroundImage?.let { File(it).isFile } == true
 
@@ -209,6 +221,24 @@ object PclAppearance {
         backgroundImage = target.absolutePath
         backgroundCleared = false
         return true
+    }
+
+    /**
+     * 导入一段视频作为动态背景（复制进 `PCL/Background`，和图片放一起）。
+     * @return 是否成功
+     */
+    fun importBackgroundVideo(context: Context, uri: Uri, name: String?): Boolean {
+        val target = importInto(context, uri, backgroundDir(context), name ?: "background.mp4")
+            ?: return false
+        backgroundVideo = target.absolutePath
+        return true
+    }
+
+    /** 清空动态背景（连同文件一起删掉，避免「删了重启又回来」）。 */
+    fun clearBackgroundVideo(context: Context) {
+        val current = backgroundVideo
+        backgroundVideo = null
+        deleteBackgroundFile(context, current)
     }
 
     // ------------------------------------------------------------------ 标题栏图片
@@ -472,6 +502,8 @@ object PclAppearance {
         backgroundCleared = storedBg == BG_CLEARED
         backgroundImage = if (backgroundCleared) null else storedBg?.takeIf { it.isNotBlank() }
         logoImage = mmkv.getString(KEY_LOGO_IMAGE, null)?.takeIf { it.isNotBlank() }
+        backgroundVideo = mmkv.getString(KEY_BG_VIDEO, null)
+            ?.takeIf { it.isNotBlank() && File(it).isFile }
         musicRandom = mmkv.getBoolean(KEY_MUSIC_RANDOM, true)
         musicAuto = mmkv.getBoolean(KEY_MUSIC_AUTO, false)
         musicStart = mmkv.getBoolean(KEY_MUSIC_START, false)
@@ -507,6 +539,7 @@ object PclAppearance {
                 else -> backgroundImage ?: ""
             })
             putString(KEY_LOGO_IMAGE, logoImage ?: "")
+            putString(KEY_BG_VIDEO, backgroundVideo ?: "")
             putBoolean(KEY_MUSIC_RANDOM, musicRandom)
             putBoolean(KEY_MUSIC_AUTO, musicAuto)
             putBoolean(KEY_MUSIC_START, musicStart)

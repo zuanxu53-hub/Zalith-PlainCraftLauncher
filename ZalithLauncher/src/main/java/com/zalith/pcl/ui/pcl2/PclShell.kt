@@ -106,6 +106,7 @@ import com.zalith.pcl.game.account.AccountsManager
 import com.zalith.pcl.ui.pcl2.components.PclPrank
 import com.zalith.pcl.ui.pcl2.components.rememberPclPrankModifier
 import com.zalith.pcl.ui.pcl2.components.PclBackgroundImageLayer
+import com.zalith.pcl.ui.pcl2.components.PclBackgroundVideoLayer
 import com.zalith.pcl.ui.pcl2.components.PclDownloadTaskDialog
 import com.zalith.pcl.ui.pcl2.components.PclIconButton
 import com.zalith.pcl.ui.pcl2.components.PclIconTheme
@@ -471,10 +472,19 @@ private fun PclMainContent(
             // ---- 背景图片（PCL 的 CardBackground）
             // 铺在窗体最底下：底色/渐变由上面的 Modifier 画，这一层盖在它们之上、
             // 界面内容之下，和 PCL 把图片放在 BorderForm 背景里的叠法一致。
-            PclBackgroundImageLayer(
-                modifier = Modifier.matchParentSize(),
-                opacityPercent = backgroundOpacity,
-            )
+            // 动态背景优先：设了视频就播视频，没设才用图片。
+            // 两者互不覆盖，清掉视频会自然退回图片背景。
+            if (PclAppearance.hasBackgroundVideo) {
+                PclBackgroundVideoLayer(
+                    modifier = Modifier.matchParentSize(),
+                    opacityPercent = backgroundOpacity,
+                )
+            } else {
+                PclBackgroundImageLayer(
+                    modifier = Modifier.matchParentSize(),
+                    opacityPercent = backgroundOpacity,
+                )
+            }
 
             Column(modifier = Modifier.fillMaxSize()) {
                 PclTitleBar(nav)
