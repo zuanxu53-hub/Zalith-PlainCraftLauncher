@@ -506,12 +506,58 @@ abstract class Launcher(
             map["DALVIK_JAVAVM"] = ZLBridge.getJavaVMPointer().toString()
             map["DALVIK_APPLICATION"] = ZLBridge.jObjectToString(GlobalContext.applicationContext)
             map["ALSOFT_DRIVERS"] = "opensl"
+            // 声音延迟：按设置写一份 OpenAL 配置，只影响游戏进程
+            applyAudioLatency(map)
 
             if (AllSettings.dumpShaders.getValue()) map["LIBGL_VGPU_DUMP"] = "1"
             if (AllSettings.zinkPreferSystemDriver.getValue()) map["POJAV_ZINK_PREFER_SYSTEM_DRIVER"] = "1"
             if (AllSettings.vsyncInZink.getValue()) map["POJAV_VSYNC_IN_ZINK"] = "1"
 
             if (FFmpegPluginManager.isAvailable) map["POJAV_FFMPEG_PATH"] = FFmpegPluginManager.executablePath!!
+        }
+    }
+
+    /**
+     * 按「音频缓冲」设置写 OpenAL Soft 的配置，压低「声音比画面慢」的那段延迟。
+     *
+     * 游戏的音频走 OpenAL（Android 后端是 OpenSL），默认缓冲是 3×1024 帧，
+     * 加上混音与系统另一层缓冲，实际延迟常在 100ms 以上，听感就是慢半拍。
+     * 这里直接调 period 数与每段帧数：
+     *   低延迟 2×512   ≈ 21ms（老机器可能爆音）
+     *   均衡   3×1024  ≈ 64ms（默认）
+     *   稳定   4×2048  ≈ 170ms（卡顿、爆音时用）
+     *
+     * 配置写到游戏的 HOME 下（`HOME` 已指向外部文件目录），并用 ALSOFT_CONF 明确指过去；
+     * 只对这一次游戏进程生效，不动系统设置。
+     */
+    private fun applyAudioLatency(envMap: MutableMap<String, String>) {
+        val level = runCatching { AllSettings.audioBufferLevel.getValue() }.getOrDefault(1)
+        val periods = when (level) {
+            0 -> 2
+            2 -> 4
+            else -> 3
+        }
+        val periodSize = when (level) {
+            0 -> 512
+            2 -> 2048
+            else -> 1024
+        }
+
+        val conf = File(PathManager.DIR_FILES_EXTERNAL, ".alsoftrc")
+        runCatching {
+            conf.writeText(
+                buildString {
+                    appendLine("[general]")
+                    appendLine("periods = $periods")
+                    // 两种写法都写上：不同版本的 OpenAL Soft 认的键名不一致，
+                    // 不认的那个会被忽略，认的那个生效。
+                    appendLine("period-size = $periodSize")
+                    appendLine("period_size = $periodSize")
+                }
+            )
+            envMap["ALSOFT_CONF"] = conf.absolutePath
+        }.onFailure {
+            Logger.warning(TAG, "写入 OpenAL 配置失败，保持默认音频缓冲", it)
         }
     }
 

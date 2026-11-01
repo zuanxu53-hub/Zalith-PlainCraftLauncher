@@ -427,6 +427,34 @@ private fun PclRenderingCard() {
             SettingCheck("着色器日志输出（调试用）", AllSettings.dumpShaders)
             SettingCheck("Zink 垂直同步", AllSettings.vsyncInZink)
             SettingCheck("使用系统 Vulkan 驱动（Zink）", AllSettings.zinkPreferSystemDriver)
+            Spacer(Modifier.height(6.dp))
+            SetupRow("音频缓冲") {
+                Column {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        listOf(0 to "低延迟", 1 to "均衡", 2 to "稳定").forEach { (value, label) ->
+                            PclButton(
+                                text = label,
+                                colorState = if (AllSettings.audioBufferLevel.state == value) {
+                                    PclColorState.Highlight
+                                } else {
+                                    PclColorState.Normal
+                                },
+                                onClick = {
+                                    AllSettings.audioBufferLevel.save(value)
+                                    PclHintHost.push("已切换音频缓冲，下次启动游戏生效。", PclHintTheme.Green)
+                                },
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    PclHint(
+                        text = "声音比画面慢半拍时选「低延迟」（缓冲约 21ms）；" +
+                                "出现爆音、断音就退回「均衡」或「稳定」。" +
+                                "这一项改的是游戏的 OpenAL 缓冲，下次启动游戏生效。",
+                        theme = PclHintTheme.Blue,
+                    )
+                }
+            }
             Spacer(Modifier.height(4.dp))
             PclHint(
                 text = "渲染器与驱动列表来自设备上实际安装的插件，未安装插件时仅显示内置 Turnip 驱动。",

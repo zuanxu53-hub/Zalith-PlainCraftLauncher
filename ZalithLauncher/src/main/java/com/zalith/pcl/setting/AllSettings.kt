@@ -180,6 +180,15 @@ object AllSettings : SettingsRegistry() {
      */
     val logBufferFlushInterval = intSetting("logBufferFlushInterval", 200, 100..1000)
 
+    /**
+     * 音频缓冲档位：0 低延迟 / 1 均衡 / 2 稳定。
+     *
+     * 游戏声音走 OpenAL（Android 上后端是 OpenSL），默认缓冲偏大，
+     * 听感上就是「声音比画面慢一拍」。这里控制 OpenAL Soft 的 period 数与每段帧数：
+     * 越小延迟越低，但设备跟不上时会爆音，所以留了三档给用户自己权衡。
+     */
+    val audioBufferLevel = intSetting("audioBufferLevel", 1, 0..2)
+
     //Control
     /**
      * 实体鼠标控制
