@@ -118,6 +118,8 @@
     <string name="crash_advice_out_of_memory">The game ran out of memory. Lower “Allocated memory” in the instance settings (for example to 1024 MB), or close other apps in the background and try again.</string>
     <string name="crash_advice_mod_mismatch">A mod could not be loaded, most likely because it does not match this game version. Disable the mod you added most recently on the mods page, then start the game again.</string>
     <string name="crash_advice_native_crash">The native layer crashed, which is usually a graphics driver issue. Try another renderer first; if it keeps crashing, the driver on this device may not support this version.</string>
+    <string name="crash_advice_renderer_gpu_mismatch">This renderer needs a different GPU: Freedreno only runs on Qualcomm Adreno, Panfrost only on ARM Mali. Go to Settings - Renderer and pick the one that matches this device, or use a generic renderer such as GL4ES / Krypton.</string>
+    <string name="crash_advice_jre_instruction_mismatch">The CPU rejected an instruction from the Java runtime, so this Java build does not match this device CPU. Switch to another Java runtime (for example 21), or add -Xint to this version Java arguments to bypass the JIT.</string>
     <string name="crash_type">Crash Type: %s</string>
     <string name="crash_type_launcher">Launcher Crash</string>
     <string name="crash_type_game">Game Crash</string>

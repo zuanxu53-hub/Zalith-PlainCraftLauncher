@@ -118,6 +118,8 @@
     <string name="crash_advice_out_of_memory">游戏内存不足。请在实例设置里把「分配内存」调小（例如 1024 MB），或者先关掉后台的其它应用再启动。</string>
     <string name="crash_advice_mod_mismatch">有模组加载失败，多半是它不支持当前的游戏版本。请到「模组」页把最近新加的那个关掉，再启动游戏。</string>
     <string name="crash_advice_native_crash">原生层崩溃了，通常是显卡驱动的问题。先换一个渲染器试试；如果一直崩，那就是这台机器的驱动撑不住这个版本。</string>
+    <string name="crash_advice_renderer_gpu_mismatch">这个渲染器要求的显卡和本机不一样：Freedreno 只能用在骁龙 Adreno 上，Panfrost 只能用在 ARM Mali 上。 请到「设置 → 渲染器」换成和本机匹配的那个，或者改用 GL4ES / Krypton 这类通用渲染器。</string>
+    <string name="crash_advice_jre_instruction_mismatch">CPU 不认识当前 Java 运行时里的指令，说明这个 Java 版本和本机 CPU 不匹配。 换一个 Java 运行时（比如 21）试试；或者在这个版本的「Java 参数」里加 -Xint，绕过即时编译。</string>
     <string name="crash_type">崩溃类型：%s</string>
     <string name="crash_type_launcher">启动器崩溃</string>
     <string name="crash_type_game">游戏运行崩溃</string>

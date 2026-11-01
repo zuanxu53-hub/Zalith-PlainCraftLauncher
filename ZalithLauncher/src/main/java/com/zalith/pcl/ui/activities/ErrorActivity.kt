@@ -362,6 +362,8 @@ class ErrorActivity : BaseAppCompatActivity() {
         GameExitDiagnostics.Advice.OUT_OF_MEMORY -> R.string.crash_advice_out_of_memory
         GameExitDiagnostics.Advice.MOD_MISMATCH -> R.string.crash_advice_mod_mismatch
         GameExitDiagnostics.Advice.NATIVE_CRASH -> R.string.crash_advice_native_crash
+        GameExitDiagnostics.Advice.RENDERER_GPU_MISMATCH -> R.string.crash_advice_renderer_gpu_mismatch
+        GameExitDiagnostics.Advice.JRE_INSTRUCTION_MISMATCH -> R.string.crash_advice_jre_instruction_mismatch
     }
 
     private data class ErrorMessage(        val message: String,

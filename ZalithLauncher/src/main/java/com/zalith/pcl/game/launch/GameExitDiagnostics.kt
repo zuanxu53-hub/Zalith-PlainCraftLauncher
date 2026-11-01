@@ -230,6 +230,16 @@ internal object GameExitDiagnostics {    /** 最多从文件尾部读这么多�
             has("Mixin apply failed", "MixinApplyError", "Failed to load mods", "Mod resolution") ->
                 Advice.MOD_MISMATCH
 
+            // 渲染器和本机 GPU 厂商不符：Freedreno 要 Adreno（内核驱动 kbase / kgsl），
+            // Panfrost 要 Mali。崩溃本身在原生层，但原因非常确定，值得单独给一条建议。
+            has("Failed to open kbase", "kbase device", "kgsl device", "FD_OSMESA") ->
+                Advice.RENDERER_GPU_MISMATCH
+
+            // SIGILL：CPU 不认识当前 Java 运行时里的指令。典型是 ARMv8.0 的老核心
+            // 去跑按 ARMv8.2 编译的 JRE，启动一两秒就崩，且和渲染器无关。
+            has("SIGILL", "Illegal instruction") ->
+                Advice.JRE_INSTRUCTION_MISMATCH
+
             has("EXCEPTION_ACCESS_VIOLATION", "SIGSEGV", "SIGABRT", "Fatal signal") ->
                 Advice.NATIVE_CRASH
 
@@ -250,6 +260,10 @@ internal object GameExitDiagnostics {    /** 最多从文件尾部读这么多�
         OUT_OF_MEMORY,
         /** 模组与游戏版本不匹配，装不上 */
         MOD_MISMATCH,
+        /** 渲染器要求的 GPU 厂商和本机不符（Freedreno 要 Adreno，Panfrost 要 Mali） */
+        RENDERER_GPU_MISMATCH,
+        /** CPU 不支持当前 Java 运行时的指令集（SIGILL） */
+        JRE_INSTRUCTION_MISMATCH,
         /** 原生层崩溃（多半是驱动） */
         NATIVE_CRASH
     }

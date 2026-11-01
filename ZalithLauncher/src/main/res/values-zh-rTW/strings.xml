@@ -103,6 +103,8 @@
     <string name="crash_advice_out_of_memory">遊戲記憶體不足。請在實例設定裡把「分配記憶體」調小（例如 1024 MB），或先關掉背景的其他應用程式再啟動。</string>
     <string name="crash_advice_mod_mismatch">有模組載入失敗，多半是它不支援目前的遊戲版本。請到「模組」頁把最近新加的那個關掉，再啟動遊戲。</string>
     <string name="crash_advice_native_crash">原生層崩潰了，通常是顯示卡驅動的問題。先換一個渲染器試試；若一直崩，就是這台機器驅動撐不住這個版本。</string>
+    <string name="crash_advice_renderer_gpu_mismatch">這個渲染器要求的顯示卡和本機不一樣：Freedreno 只能用在高通 Adreno 上，Panfrost 只能用在 ARM Mali 上。 請到「設定 → 渲染器」換成和本機相符的那個，或改用 GL4ES / Krypton 這類通用渲染器。</string>
+    <string name="crash_advice_jre_instruction_mismatch">CPU 不認識目前 Java 執行環境裡的指令，表示這個 Java 版本和本機 CPU 不相符。 換一個 Java 執行環境（例如 21）試試；或在這個版本的「Java 參數」裡加上 -Xint，繞過即時編譯。</string>
     <string name="crash_type">崩潰類型：%s</string>
     <string name="crash_type_launcher">啟動器崩潰</string>
     <string name="crash_type_game">遊戲執行崩潰</string>
