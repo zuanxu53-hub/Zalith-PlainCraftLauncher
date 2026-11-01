@@ -337,18 +337,46 @@ class MinecraftDownloader(
                 scheduleDownload(urls, hash, targetFile, size)
             },
             scheduleCopy = { targetFile ->
-                inheritsFrom?.let { inheritsFrom ->
-                    val inheritsJar = downloader.getVersionJarPath(inheritsFrom.id)
+                val parent = inheritsFrom
+                if (parent == null) {
+                    // 既没有 downloads.client、也没有可继承的父版本（本地导入的版本常见）：
+                    // 这种情况下没法凭空造一个核心 jar，留一行日志方便排查。
+                    Logger.warning(
+                        TAG,
+                        "核心 jar 缺失且没有可复制的父版本：${targetFile.absolutePath}"
+                    )
+                } else {
+                    val inheritsJar = downloader.getVersionJarPath(parent.id)
 
-                    allDownloadTasks.find {
-                        it.targetFile.absolutePath == inheritsJar.absolutePath
-                    }?.let { task ->
-                        task.fileDownloadedTask = {
-                            if (!targetFile.exists() && inheritsJar.exists()) {
+                    // 父版本 jar 可能「本来就在、不需要下载」，这时它不在待下载队列里。
+                    // 以前只有队列里能找到对应任务时才挂复制回调 —— 于是父 jar 完好、
+                    // 实例目录里的 jar 丢了时，复制永远不会发生，表现就是
+                    // 「库和资源都补好了，核心 jar 怎么也补不回来」。
+                    val copyIfNeeded = {
+                        if ((!targetFile.exists() || targetFile.length() == 0L) && inheritsJar.isFile) {
+                            runCatching {
+                                targetFile.parentFile?.mkdirs()
                                 inheritsJar.copyTo(targetFile, overwrite = true)
-                                Logger.info(TAG, "Copied ${inheritsJar.absolutePath} to ${targetFile.absolutePath}")
+                            }.onSuccess {
+                                Logger.info(
+                                    TAG,
+                                    "Copied ${inheritsJar.absolutePath} to ${targetFile.absolutePath}"
+                                )
+                            }.onFailure {
+                                Logger.warning(TAG, "复制核心 jar 失败：${it.message}")
                             }
                         }
+                    }
+
+                    val pending = allDownloadTasks.find {
+                        it.targetFile.absolutePath == inheritsJar.absolutePath
+                    }
+                    if (pending != null) {
+                        // 父 jar 也要下：等它下完再复制
+                        pending.fileDownloadedTask = { copyIfNeeded() }
+                    } else {
+                        // 父 jar 已就绪：立刻补上实例目录里那份
+                        copyIfNeeded()
                     }
                 }
             }

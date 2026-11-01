@@ -329,9 +329,12 @@ class ObservableJoystickData(data: JoystickData) : ObservableWidget() {
                                     activePointer = pointerId
                                     onOccupiedPointer(pointerId)
                                     lastDragPosition = pos
-                                    // 如果当前锁定中，解锁
+                                    // 如果当前锁定中，解锁。
+                                    // 注意要同时把「锁定」时按下的键松开：以前只清 isLocked，
+                                    // 键还按着，于是摇杆看着回中了，人却一直在往前走。
                                     if (isLocked) {
                                         isLocked = false
+                                        eventHandler.onKeyPressed(lockEvents, false)
                                     }
 
                                     if (triggerMode == JoystickTriggerMode.TOUCH) {
@@ -373,7 +376,11 @@ class ObservableJoystickData(data: JoystickData) : ObservableWidget() {
 
                             lastDragPosition = localPos
 
-                            if (isLocked) isLocked = false
+                            // 拖动即视为解锁，同样要松开锁定键
+                            if (isLocked) {
+                                isLocked = false
+                                eventHandler.onKeyPressed(lockEvents, false)
+                            }
 
                             updateJoystickState(
                                 position = localPos,
