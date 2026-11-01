@@ -51,6 +51,9 @@ import java.io.InputStream
 
 private const val TAG = "ControlManager"
 
+/** 控制布局 json 的大小上限。正常的只有几十 KB，超过这个数基本就是选错文件了。 */
+private const val MAX_CONTROL_LAYOUT_BYTES = 8L * 1024 * 1024
+
 /**
  * 控制布局管理者
  */
@@ -343,13 +346,31 @@ object ControlManager {
         //    **必须带超时**：SAF 的流由文件管理器提供，个别 provider 会一直不给数据，
         //    `copyTo` 就永远阻塞在 IO 线程上 —— 界面上永远停在「正在导入键位布局…」，
         //    连失败提示都出不来。20 秒足够拷完任何正常大小的布局 json。
+        //
+        //    **还必须限大小**：用户选错文件是常事（选了个 APK、整合包、甚至视频），
+        //    照单全收之后再 `readText()` 会把整个文件读成字符串 —— 几百 MB 就 OOM 崩掉。
+        //    正常的控制布局 json 只有几十 KB，8 MB 已经很宽松了。
         val copied = try {
             withTimeoutOrNull(20_000) {
                 file.parentFile?.mkdirs()
+                var total = 0L
+                var withinLimit = true
+                val buffer = ByteArray(64 * 1024)
                 inputStream.use { stream ->
-                    file.outputStream().use { out -> stream.copyTo(out) }
+                    file.outputStream().use { out ->
+                        while (true) {
+                            val read = stream.read(buffer)
+                            if (read < 0) break
+                            total += read
+                            if (total > MAX_CONTROL_LAYOUT_BYTES) {
+                                withinLimit = false
+                                break
+                            }
+                            out.write(buffer, 0, read)
+                        }
+                    }
                 }
-                true
+                withinLimit
             }
         } catch (e: Exception) {
             Logger.warning(TAG, "控制布局写盘失败", e)
@@ -362,11 +383,27 @@ object ControlManager {
             )
             return@withContext
         }
+        if (!copied) {
+            FileUtils.deleteQuietly(file)
+            catchedError(
+                IllegalStateException(
+                    "这个文件超过 ${MAX_CONTROL_LAYOUT_BYTES / 1024 / 1024} MB，不像是控制布局。" +
+                        "控制布局是一份几十 KB 的 json，请重新选择。"
+                )
+            )
+            return@withContext
+        }
 
         // ② 清理隐形垃圾。`loadLayoutFromFile` 读的时候会原样带着 BOM，
         //    kotlinx 直接抛 `Unexpected JSON token at offset 0`。
         val text = try {
             file.readText()
+        } catch (e: OutOfMemoryError) {
+            // 兜底：极端情况下（以前的版本留下的大文件）也别把整个启动器带走
+            Logger.warning(TAG, "控制布局读取时内存不足", e)
+            FileUtils.deleteQuietly(file)
+            catchedError(IllegalStateException("这个文件太大，读不进内存，已放弃导入。"))
+            return@withContext
         } catch (e: Exception) {
             Logger.warning(TAG, "控制布局读出失败（可能不是 UTF-8 文本）", e)
             catchedError(e)
