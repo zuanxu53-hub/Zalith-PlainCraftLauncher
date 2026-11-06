@@ -41,9 +41,6 @@ private const val FILES_PREFIX = ASSET_ROOT + "files/"
 const val TARGET_MINECRAFT = "minecraft"
 const val TARGET_LAUNCHER = "launcher"
 
-/** 皮肤 APK 里放参数的条目名；安装时另存为插件目录下的 `ui.json`。 */
-private const val UI_SPEC_ENTRY = ASSET_ROOT + "ui.json"
-
 /** 插件投递目录名（`<插件根>/incoming`）：APK 丢进来，装完自动清掉。 */
 private const val INCOMING_DIR = "incoming"
 
@@ -92,20 +89,7 @@ data class ZlPlugin(
     val fileCount: Int,
     val enabled: Boolean,
     val dir: File,
-    /**
-     * 皮肤标识（`plugin.json` 的 `ui`，随便写什么名字都行）。
-     *
-     * 带这个字段的插件是「界面皮肤」：可以不带任何要覆盖的文件，作用是把
-     * 插件目录下的 `ui.json` 交给启动器渲染。渲染方式由 `ui.json` 里的 `renderer`
-     * 决定（`glass` / `flat` …），启动器不认识的值会退回默认。
-     */
-    val ui: String = "",
-    /** 插件目录下有没有 `ui.json`。 */
-    val hasUiSpec: Boolean = false,
-) {
-    /** 是否界面皮肤插件。 */
-    val isTheme: Boolean get() = ui.isNotBlank() || hasUiSpec
-}
+)
 
 /** `plugin.json` 的结构；字段都给了默认值，缺省也能装。 */
 private data class PluginManifest(
@@ -116,8 +100,6 @@ private data class PluginManifest(
     @SerializedName("target") val target: String = TARGET_MINECRAFT,
     /** 安装后是否立即启用；默认启用，和「资源包装上就能用」一致。 */
     @SerializedName("enabled") val enabled: Boolean = true,
-    /** 界面皮肤标识；给了就说明这是皮肤插件，可以不带任何文件。 */
-    @SerializedName("ui") val ui: String = "",
 )
 
 /** `meta.json`：清单 + 开关状态。 */
@@ -130,7 +112,6 @@ private data class PluginMeta(
     val target: String = TARGET_MINECRAFT,
     val fileCount: Int = 0,
     val enabled: Boolean = false,
-    val ui: String = "",
 )
 
 /** `applied.json`：启用时记下动了哪些文件，停用时才好精确还原。 */
@@ -150,13 +131,6 @@ private data class ScanRecord(
     val path: String = "",
     val size: Long = 0L,
     val modified: Long = 0L,
-)
-
-/** 插件提供的界面皮肤：id + 名字 + `ui.json` 原文。 */
-data class ZlPluginTheme(
-    val id: String,
-    val name: String,
-    val json: String,
 )
 
 /** 一次自动识别的结果。 */
@@ -195,24 +169,6 @@ object ZlPluginManager {
     fun targetLabel(target: String): String = when (target) {
         TARGET_LAUNCHER -> "启动器目录"
         else -> "游戏目录"
-    }
-
-    /**
-     * 当前生效的界面皮肤（第一个启用中的皮肤插件）。
-     *
-     * 返回的是**插件给的原文**，怎么解释交给界面层（`theme/PclUiTheme.kt`）——
-     * 这样启动器不必认识每一种皮肤，插件也不必为了加一种风格重新编译。
-     */
-    fun activeTheme(context: Context): ZlPluginTheme? {
-        val plugin = list(context).firstOrNull { it.enabled && it.isTheme } ?: return null
-        val spec = File(plugin.dir, "ui.json")
-        val json = runCatching { if (spec.isFile) spec.readText() else null }.getOrNull()
-        return ZlPluginTheme(
-            id = plugin.ui.ifBlank { plugin.id },
-            name = plugin.name,
-            // 只写了 plugin.json 里的 ui、没带 ui.json 时，给一份空参数 —— 界面用默认值
-            json = json?.ifBlank { null } ?: "{}",
-        )
     }
 
     /** 列出已安装插件（按名字排序）。 */
@@ -294,65 +250,8 @@ object ZlPluginManager {
             }
         }
 
-        // 再扫一遍「已安装的应用」：插件本身就是可安装的 APK，用户从文件管理器装完之后
-        // 就算把安装包删了，也应该能认出来。
-        runCatching { scanInstalled(context, records, installed, rejected) }
-            .onFailure { Logger.warning(TAG, "扫描已安装应用失败", it) }
-
         writeScanRecords(root, records.takeLast(300))
         return PluginScanResult(installed = installed, rejected = rejected)
-    }
-
-    /**
-     * 扫系统里**已安装的应用**，挑出带 `assets/zplugin/plugin.json` 的当插件装上。
-     *
-     * 为什么要这条：插件就是一个能装的 APK，用户很可能直接从文件管理器装成应用、
-     * 然后把安装包删了 —— 只扫文件目录的话，这种情况永远是「已安装（0）」。
-     *
-     * 需要 `QUERY_ALL_PACKAGES`（Android 11 起默认看不到别的应用）。
-     */
-    private fun scanInstalled(
-        context: Context,
-        records: MutableList<ScanRecord>,
-        installed: MutableList<ZlPlugin>,
-        rejected: MutableList<String>,
-    ) {
-        val pm = context.packageManager
-        val known = list(context).map { it.id }.toSet()
-        val packages = runCatching { pm.getInstalledPackages(0) }.getOrDefault(emptyList())
-
-        packages.forEach { info ->
-            val pkg = info.packageName ?: return@forEach
-            if (pkg == context.packageName) return@forEach
-            val sourceDir = info.applicationInfo?.sourceDir ?: return@forEach
-            val apk = File(sourceDir)
-            if (!apk.isFile) return@forEach
-
-            // 用「包名 + 版本号」当指纹：应用升级后会重新识别一次
-            val key = "pkg:" + pkg + ":" + info.longVersionCode
-            if (records.any { it.path == key }) return@forEach
-            if (!looksLikePlugin(apk)) return@forEach
-
-            if (sanitizeId(pkg) in known) {
-                // 已经装过同一个包，不重复安装
-                records += ScanRecord(path = key)
-                return@forEach
-            }
-            runCatching { install(context, apk) }
-                .onSuccess { plugin ->
-                    installed += plugin
-                    records += ScanRecord(path = key)
-                    Logger.info(TAG, "从已安装应用识别到插件 ${plugin.name}（$pkg）")
-                }
-                .onFailure { e ->
-                    records += ScanRecord(path = key)
-                    val label = runCatching {
-                        info.applicationInfo?.loadLabel(pm)?.toString()
-                    }.getOrNull() ?: pkg
-                    rejected += "$label：${e.message ?: "安装失败"}"
-                    Logger.warning(TAG, "从已安装应用安装插件失败：$pkg", e)
-                }
-        }
     }
 
     /** 系统「下载」文件夹；拿不到（或没权限）就返回 null。 */
@@ -436,7 +335,7 @@ object ZlPluginManager {
         }
 
         archive.use { zip ->
-            val manifestEntry = findEntry(zip, MANIFEST_ENTRY)
+            val manifestEntry = zip.getEntry(MANIFEST_ENTRY)
                 ?: throw IllegalStateException(
                     "这个 APK 里没有插件清单（$MANIFEST_ENTRY）。\n" +
                             "插件包需要在 assets/zplugin/ 下放 plugin.json 与 files/ 目录。"
@@ -456,14 +355,12 @@ object ZlPluginManager {
 
             // ② 先把整棵文件树过一遍安全校验，任何一条不合规就整体拒绝
             val entries = zip.entries().toList().filter {
-                !it.isDirectory && it.normalizedEntryName().startsWith(FILES_PREFIX)
+                !it.isDirectory && it.name.startsWith(FILES_PREFIX)
             }
-            // 皮肤插件只负责「打开一套界面」，本来就没有要覆盖的文件，所以放行
-            val hasSpec = findEntry(zip, UI_SPEC_ENTRY) != null
-            if (entries.isEmpty() && manifest.ui.isBlank() && !hasSpec) {
+            if (entries.isEmpty()) {
                 throw IllegalStateException("这个插件里没有文件（${FILES_PREFIX} 下是空的）。")
             }
-            entries.forEach { checkRelative(it.normalizedEntryName().removePrefix(FILES_PREFIX)) }
+            entries.forEach { checkRelative(it.name.removePrefix(FILES_PREFIX)) }
 
             // ③ id 用 APK 的包名：重装同一个插件是升级，不会变成两份
             val pkgName = pkgInfo.packageName
@@ -484,7 +381,7 @@ object ZlPluginManager {
                 mkdirs()
             }
             entries.forEach { entry ->
-                val rel = entry.normalizedEntryName().removePrefix(FILES_PREFIX)
+                val rel = entry.name.removePrefix(FILES_PREFIX)
                 val out = File(filesDir, rel)
                 out.parentFile?.mkdirs()
                 zip.getInputStream(entry).use { ins ->
@@ -501,17 +398,7 @@ object ZlPluginManager {
                 target = target,
                 fileCount = entries.size,
                 enabled = false, // 启用由下面统一处理
-                ui = manifest.ui.trim().lowercase(),
             )
-
-            // 皮肤的渲染参数：原样存一份到插件目录，界面那边直接读这个文件
-            findEntry(zip, UI_SPEC_ENTRY)?.let { specEntry ->
-                runCatching {
-                    zip.getInputStream(specEntry).bufferedReader().use { reader ->
-                        File(dir, "ui.json").writeText(reader.readText())
-                    }
-                }.onFailure { Logger.warning(TAG, "保存 ui.json 失败", it) }
-            }
             writeMeta(dir, meta)
             installedMeta = meta
             installedDir = dir
@@ -531,8 +418,6 @@ object ZlPluginManager {
             fileCount = meta.fileCount,
             enabled = false,
             dir = dir,
-            ui = meta.ui,
-            hasUiSpec = File(dir, "ui.json").isFile,
         )
 
         // ⑤ 默认启用：与「资源包放进去就生效」一致；启用失败不影响安装本身
@@ -542,16 +427,6 @@ object ZlPluginManager {
             plugin = plugin.copy(enabled = true)
         }
         return plugin
-    }
-
-    /** 条目名统一成分隔符为正斜杠的形式（Windows 上 aapt2 打的包可能是反斜杠）。 */
-    private fun java.util.zip.ZipEntry.normalizedEntryName(): String = name.replace('\\', '/')
-
-    /** 按约定路径找条目，正反斜杠都认。 */
-    private fun findEntry(zip: ZipFile, path: String): java.util.zip.ZipEntry? {
-        zip.getEntry(path)?.let { return it }
-        zip.getEntry(path.replace('/', '\\'))?.let { return it }
-        return zip.entries().asSequence().firstOrNull { it.normalizedEntryName() == path }
     }
 
     private fun readMeta(dir: File): ZlPlugin? {
@@ -572,8 +447,6 @@ object ZlPluginManager {
                 ?: filesDir.walkTopDown().count { it.isFile }.coerceAtLeast(0),
             enabled = meta.enabled,
             dir = dir,
-            ui = meta.ui,
-            hasUiSpec = File(dir, "ui.json").isFile,
         )
     }
 
@@ -654,11 +527,6 @@ object ZlPluginManager {
         }
 
         val applied = mutableListOf<AppliedRecord>()
-        if (!filesDir.isDirectory) {
-            // 皮肤插件没有 files/，记一条空清单就够
-            File(plugin.dir, "applied.json").writeText(gson.toJson(applied))
-            return
-        }
         filesDir.walkTopDown().filter { it.isFile }.forEach { src ->
             val rel = src.relativeTo(filesDir).path.replace('\\', '/')
             val dest = resolveIn(root, rel)

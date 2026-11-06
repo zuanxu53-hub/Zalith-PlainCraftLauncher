@@ -128,18 +128,7 @@ import com.zalith.pcl.ui.pcl2.data.PclLogoType
 import com.zalith.pcl.ui.pcl2.data.PclRuntime
 import com.zalith.pcl.ui.pcl2.data.PclSkinSettings
 import com.zalith.pcl.ui.pcl2.data.rememberPclRuntime
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import com.zalith.pcl.game.plugin.ZlPluginManager
-import com.zalith.pcl.ui.pcl2.theme.LocalPclBackdrop
-import com.zalith.pcl.ui.pcl2.theme.LocalPclUiTheme
 import com.zalith.pcl.ui.pcl2.theme.PclDimens
-import com.zalith.pcl.ui.pcl2.theme.PclSurface
-import com.zalith.pcl.ui.pcl2.theme.PclUiRenderer
-import com.zalith.pcl.ui.pcl2.theme.PclUiRuntime
-import com.zalith.pcl.ui.pcl2.theme.pclGlassSupported
-import com.zalith.pcl.ui.pcl2.theme.pclSurface
-import com.zalith.pcl.ui.pcl2.theme.sidebarTint
 import com.zalith.pcl.ui.pcl2.theme.PclEase
 import com.zalith.pcl.ui.pcl2.theme.PclMotion
 import com.zalith.pcl.ui.pcl2.theme.PclPalette
@@ -341,12 +330,6 @@ fun PclMainScreen(
     // 主题功能已移除，色板固定为 PCL2 默认主题，不再需要读回任何主题设置。
     LaunchedEffect(Unit) {
         PclSkinSettings.load(context)
-        // 界面皮肤跟随插件：装好并启用皮肤插件就生效，停用/删掉立刻退回原样。
-        // 读 ui.json 是文件 IO，放 IO 线程；结果写进 PclUiRuntime（可观察，触发重组）。
-        val themeJson = withContext(Dispatchers.IO) {
-            runCatching { ZlPluginManager.activeTheme(context) }.getOrNull()
-        }
-        PclUiRuntime.apply(themeJson?.json, themeJson?.id.orEmpty())
         PclLoginSettings.load(context)
         // 背景图片 / 背景音乐 / 标题图片 / 自定义主页（PageSetupUI 的另外几张卡）
         PclAppearance.load(context)
@@ -433,17 +416,9 @@ private fun PclMainContent(
     runtime: PclRuntime,
     backgroundOpacity: Int,
 ) {
-    // 皮肤插件给的这套参数（没装就是 null，界面原样）。
-    val uiTheme = PclUiRuntime.theme
-    // 只有玻璃渲染器才需要「背景底片」：录制会多一层全屏图层，flat 皮肤用不上就别付这个钱。
-    val useBackdrop = uiTheme?.renderer == PclUiRenderer.Glass && pclGlassSupported
-    val uiBackdrop = rememberLayerBackdrop()
-
     CompositionLocalProvider(
         LocalPclNav provides nav,
         LocalPclRuntime provides runtime,
-        LocalPclUiTheme provides uiTheme,
-        LocalPclBackdrop provides if (useBackdrop) uiBackdrop else null,
     ) {
         // 外部分享进来的整合包 / 键位：在这里接手，别让它们掉回原生界面。
         // 放在 providers 之后、窗体之前 —— 弹窗是独立 window，不参与下面的视觉变换。
@@ -468,24 +443,9 @@ private fun PclMainContent(
                 .fillMaxSize()
                 .then(prankModifier)
                 .clip(androidx.compose.foundation.shape.RoundedCornerShape(PclDimens.formCorner))
-        ) {
-            // ---- 背景层（窗体底色 + 渐变 + 图片/视频）
-            //
-            // 整块录进 `uiBackdrop`：玻璃表面的模糊与折射取的就是它。
-            // 底色与渐变必须**画在这里面** —— 画在外层 Box 上的话玻璃取不到，
-            // 没设壁纸时玻璃后面就是一片透明。
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .then(if (useBackdrop) Modifier.layerBackdrop(uiBackdrop) else Modifier),
-            ) {
                 // 窗体底色：PCL 的 `UiBackgroundColorful` 关掉时用纯色 #F5F5F5
                 // （ModSecret.ThemeRefreshMain 的 else 分支）。
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .background(if (PclSkinSettings.colorfulBackground) Color.Transparent else Color(0xFFF5F5F5)),
-                )
+                .background(if (PclSkinSettings.colorfulBackground) Color.Transparent else Color(0xFFF5F5F5))
                 // PCL 窗体背景（ModSecret.ThemeRefreshMain 中 UiBackgroundColorful=True 分支）：
                 // StartPoint(0.9, 0) → EndPoint(0.1, 1)，三个色标 Offset 分别为 -0.1 / 0.4 / 1.1。
                 // Compose 的色标必须落在 0..1，因此把 [-0.1, 1.1] 归一化到 [0, 1]。
@@ -493,41 +453,37 @@ private fun PclMainContent(
                 // 叠在窗体底色上 —— 两边改同一个值。
                 // 渐变依赖 size（起点 0.9w、终点 0.1w/1h），所以用 `drawWithCache` 按 size 缓存：
                 // 重建只发生在「尺寸变化或重组」，而不是每次重绘都重新构造 Brush 与色标数组。
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .drawWithCache {
-                            if (!PclSkinSettings.colorfulBackground) return@drawWithCache onDrawBehind {}
-                            val alpha = (backgroundOpacity / 100f).coerceIn(0.2f, 1f)
-                            val stops = p.bodyGradient
-                            val brush = Brush.linearGradient(
-                                colorStops = arrayOf(
-                                    0f to stops[0].copy(alpha = alpha),
-                                    ((0.4f + 0.1f) / 1.2f) to stops[1].copy(alpha = alpha),
-                                    1f to stops[2].copy(alpha = alpha),
-                                ),
-                                start = androidx.compose.ui.geometry.Offset(size.width * 0.9f, 0f),
-                                end = androidx.compose.ui.geometry.Offset(size.width * 0.1f, size.height),
-                            )
-                            onDrawBehind { drawRect(brush = brush, size = size) }
-                        },
+                .drawWithCache {
+                    if (!PclSkinSettings.colorfulBackground) return@drawWithCache onDrawBehind {}
+                    val alpha = (backgroundOpacity / 100f).coerceIn(0.2f, 1f)
+                    val stops = p.bodyGradient
+                    val brush = Brush.linearGradient(
+                        colorStops = arrayOf(
+                            0f to stops[0].copy(alpha = alpha),
+                            ((0.4f + 0.1f) / 1.2f) to stops[1].copy(alpha = alpha),
+                            1f to stops[2].copy(alpha = alpha),
+                        ),
+                        start = androidx.compose.ui.geometry.Offset(size.width * 0.9f, 0f),
+                        end = androidx.compose.ui.geometry.Offset(size.width * 0.1f, size.height),
+                    )
+                    onDrawBehind { drawRect(brush = brush, size = size) }
+                },
+        ) {
+            // ---- 背景图片（PCL 的 CardBackground）
+            // 铺在窗体最底下：底色/渐变由上面的 Modifier 画，这一层盖在它们之上、
+            // 界面内容之下，和 PCL 把图片放在 BorderForm 背景里的叠法一致。
+            // 动态背景优先：设了视频就播视频，没设才用图片。
+            // 两者互不覆盖，清掉视频会自然退回图片背景。
+            if (PclAppearance.hasBackgroundVideo) {
+                PclBackgroundVideoLayer(
+                    modifier = Modifier.matchParentSize(),
+                    opacityPercent = backgroundOpacity,
                 )
-                // ---- 背景图片（PCL 的 CardBackground）
-                // 铺在窗体最底下：底色/渐变在它下面、界面内容在它上面，
-                // 和 PCL 把图片放在 BorderForm 背景里的叠法一致。
-                // 动态背景优先：设了视频就播视频，没设才用图片。
-                // 两者互不覆盖，清掉视频会自然退回图片背景。
-                if (PclAppearance.hasBackgroundVideo) {
-                    PclBackgroundVideoLayer(
-                        modifier = Modifier.matchParentSize(),
-                        opacityPercent = backgroundOpacity,
-                    )
-                } else {
-                    PclBackgroundImageLayer(
-                        modifier = Modifier.matchParentSize(),
-                        opacityPercent = backgroundOpacity,
-                    )
-                }
+            } else {
+                PclBackgroundImageLayer(
+                    modifier = Modifier.matchParentSize(),
+                    opacityPercent = backgroundOpacity,
+                )
             }
 
             Column(modifier = Modifier.fillMaxSize()) {
@@ -586,35 +542,12 @@ private fun PclTitleBar(nav: PclNavController) {
     // 标题栏三段渐变：Brush 只在调色板真正变化时重建一次，
     // 而不是每次重组都新造一个（标题栏所在的外壳重组频率并不低）。
     val titleBrush = remember(p.titleBarGradient) { Brush.horizontalGradient(p.titleBarGradient) }
-    val uiTheme = LocalPclUiTheme.current
-    val backdrop = LocalPclBackdrop.current
-    // 玻璃态下渐变要让一点透明度出来，否则玻璃被这层渐变完全盖住、等于没开。
-    // 保留蓝调是刻意的：标题栏的文字和图标全是白的，换成中性玻璃会看不清。
-    val glassBrush = remember(p.titleBarGradient) {
-        Brush.horizontalGradient(p.titleBarGradient.map { it.copy(alpha = 0.78f) })
-    }
-    val glassTitle = uiTheme?.renderer == PclUiRenderer.Glass && (uiTheme.glass.panel)
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(PclDimens.titleBarHeight)
-            .then(
-                if (glassTitle) {
-                    Modifier.pclSurface(
-                        theme = uiTheme,
-                        backdrop = backdrop,
-                        // 圆角 0 的矩形：lens 只认 CornerBasedShape
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(0.dp),
-                        surface = PclSurface.Panel,
-                        fallbackColor = Color.Transparent,
-                        colorOverride = Color.Transparent,
-                    )
-                } else {
-                    Modifier
-                }
-            )
-            .background(if (glassTitle) glassBrush else titleBrush),
+            .background(titleBrush),
     ) {
         if (sub == null) {
             // PCL 描边 Logo / 自定义文本（`UiLogoType` + `UiLogoText` + `UiLogoLeft`）：
@@ -822,10 +755,6 @@ fun pclLeftPanelWidth(
 private fun PclBody(nav: PclNavController) {
     val p = pclPalette
     val sub = nav.subPage
-    // 皮肤可以给侧栏换个底色（液态玻璃给的是半透明白）。这里**不做真折射**：
-    // 侧栏底是 `drawBehind` 里的一段矩形，宽度还在做 180ms 动画，
-    // 套 drawBackdrop 得按动画宽度逐帧重建图层，代价远大于收益。
-    val sidebarColor = LocalPclUiTheme.current.sidebarTint() ?: p.sidebarBackground
 
     // 侧栏宽度：PCL 里由「最宽条目」决定（见 pclLeftPanelWidth），
     // 只有启动页写死 300（PageLaunchLeft.xaml:8）、联机页没有侧栏。
@@ -890,14 +819,14 @@ private fun PclBody(nav: PclNavController) {
                         if (homePanelOnRight) {
                             // 面板挪到右边：底色条贴在右侧，阴影落在它的左边
                             val x = size.width - w
-                            drawRect(color = sidebarColor, topLeft = Offset(x, 0f), size = Size(w, size.height))
+                            drawRect(color = p.sidebarBackground, topLeft = Offset(x, 0f), size = Size(w, size.height))
                             drawRect(
                                 brush = leftBarShadow,
                                 topLeft = Offset(x - leftBarShadowWidth, 0f),
                                 size = Size(leftBarShadowWidth, size.height),
                             )
                         } else {
-                            drawRect(color = sidebarColor, size = Size(w, size.height))
+                            drawRect(color = p.sidebarBackground, size = Size(w, size.height))
                             drawRect(
                                 brush = leftBarShadow,
                                 topLeft = Offset(w, 0f),

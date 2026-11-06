@@ -23,14 +23,6 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"/>
     <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS"/>
-    <!--
-      皮肤/资源插件是「独立 APK」，装到手机上就是一个应用。
-      Android 11 起默认看不到别的应用，所以这里要声明才能把已安装的插件找出来
-      （见 ZlPluginManager.scanInstalled）。本应用是侧载分发，不涉及商店审核。
-    -->
-    <uses-permission
-        android:name="android.permission.QUERY_ALL_PACKAGES"
-        tools:ignore="QueryAllPackagesPermission" />
 
     <application
         android:name=".ZLApplication"
