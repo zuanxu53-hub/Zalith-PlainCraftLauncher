@@ -123,8 +123,8 @@ private data class AppliedRecord(
  * 例如想改游戏目录下 `config/1/x.txt`，就在插件里放
  * `assets/zplugin/files/config/1/x.txt`。
  *
- * 插件**不是代码插件**：启动器只读它 assets 里的文件，从不加载它的 dex、
- * 不反射、不执行任何东西。因此它没有能力读取正版登录信息；写入侧另有
+ * 插件必须是**独立 APK**（能被 PackageManager 读出包名，纯压缩包会被拒绝）：
+ * 启动器只读它 assets 里的文件，从不加载它的 dex、不反射、不执行任何东西。因此它没有能力读取正版登录信息；写入侧另有
  * [DENIED_SEGMENTS] 黑名单兜底。
  */
 object ZlPluginManager {
@@ -180,6 +180,18 @@ object ZlPluginManager {
         var installedDir: File? = null
         var autoEnable = true
 
+        // ⓪ 必须是真正的 APK：能读出包名才认。纯 zip / 改后缀的文件在这里就被挡住，
+        //    这样「插件就是一个独立 APK」这条规则由加载器自己保证，而不是靠用户自觉。
+        val pkgInfo = runCatching {
+            context.packageManager.getPackageArchiveInfo(tempApk.absolutePath, 0)
+        }.getOrNull() ?: run {
+            tempApk.delete()
+            throw IllegalStateException(
+                "这个文件不是有效的 APK（读不到包信息）。\n" +
+                        "插件必须是独立的 .apk 文件，普通压缩包不行。"
+            )
+        }
+
         archive.use { zip ->
             val manifestEntry = zip.getEntry(MANIFEST_ENTRY)
                 ?: throw IllegalStateException(
@@ -209,12 +221,8 @@ object ZlPluginManager {
             entries.forEach { checkRelative(it.name.removePrefix(FILES_PREFIX)) }
 
             // ③ id 用 APK 的包名：重装同一个插件是升级，不会变成两份
-            val pkgName = runCatching {
-                context.packageManager
-                    .getPackageArchiveInfo(tempApk.absolutePath, 0)
-                    ?.packageName
-            }.getOrNull()
-            val id = sanitizeId(pkgName ?: manifest.name.ifBlank { "plugin" })
+            val pkgName = pkgInfo.packageName
+            val id = sanitizeId(pkgName)
             val dir = File(root, id).apply { mkdirs() }
 
             // 覆盖安装前先把旧版本停用，避免「文件已经换成新的、备份却还是旧的」

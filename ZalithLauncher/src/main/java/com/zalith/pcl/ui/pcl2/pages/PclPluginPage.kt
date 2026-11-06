@@ -117,8 +117,9 @@ private fun PclPluginContent() {
         PclCard(modifier = Modifier.fillMaxWidth(), title = "安装插件") {
             Column {
                 PclText(
-                    text = "插件和 Minecraft 的资源包一个思路：一个插件就是一个普通 APK，" +
-                            "里面放一棵和目标目录同构的文件树，启用后这些文件会覆盖过去。\n" +
+                    text = "插件和 Minecraft 的资源包一个思路：每个插件是一个**独立 APK**" +
+                            "（普通 APK，能装也能只当资源包用），里面放一棵和目标目录同构的文件树，" +
+                            "启用后这些文件会覆盖过去。\n" +
                             "比如要改游戏目录下的 `config/1/a.txt`，就在插件里放 " +
                             "`assets/zplugin/files/config/1/a.txt`。",
                     fontSize = 12,
@@ -135,7 +136,8 @@ private fun PclPluginContent() {
                 }
                 Spacer(Modifier.height(10.dp))
                 PclHint(
-                    text = "插件只是文件，启动器不会加载插件 APK 里的代码，也不会执行它。" +
+                    text = "普通压缩包会被拒绝：插件必须是能被系统识别出包名的 APK。" +
+                            "启动器只读它 assets 里的文件，不会加载插件 APK 的代码，也不会执行它。" +
                             "安装时如果插件想写入账号数据库、登录令牌这类路径，整包会被拒绝。",
                     theme = PclHintTheme.Blue,
                 )
