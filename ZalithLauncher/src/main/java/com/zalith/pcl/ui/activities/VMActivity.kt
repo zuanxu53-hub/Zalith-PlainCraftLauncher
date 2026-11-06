@@ -75,6 +75,7 @@ import com.zalith.pcl.bridge.FliteTts
 import com.zalith.pcl.bridge.LoggerBridge
 import com.zalith.pcl.bridge.ZLBridge
 import com.zalith.pcl.bridge.ZLBridgeStates
+import com.zalith.pcl.bridge.ZLNativeInvoker
 import com.zalith.pcl.coroutine.DataBridge
 import com.zalith.pcl.game.account.Account
 import com.zalith.pcl.game.input.AWTCharSender
@@ -408,6 +409,9 @@ class VMActivity : BaseAppCompatActivity(), SurfaceTextureListener, SurfaceHolde
         //只有「启动游戏」才做「提前退出」判定：运行 jar 时秒退是完全正常的
         val runsGame = bundle.getBoolean(INTENT_RUN_GAME)
 
+        // 同一个进程里可能连开两次（比如退出后没重启进程），开新会话前先清掉上轮的标记
+        ZLNativeInvoker.clearUserRequestedExit()
+
         vmViewModel.initSession(
             activity = this,
             bundle = bundle,
@@ -440,6 +444,14 @@ class VMActivity : BaseAppCompatActivity(), SurfaceTextureListener, SurfaceHolde
                 }
 
                 when {
+                    // 用户自己在游戏菜单里点了「强制关闭」：这不是崩溃，直接回主界面。
+                    // 它和「游戏加载一半自己没了」完全同形（退出码 0、日志里没有 Stopping!），
+                    // 所以必须靠这个标记区分，否则每次强制退出都会弹崩溃页。
+                    ZLNativeInvoker.userRequestedExit -> {
+                        LoggerBridge.append("▷ 用户主动强制关闭游戏，跳过崩溃判定")
+                        ProcessPhoenix.triggerRebirth(this@VMActivity)
+                    }
+
                     //非零退出码 / 被信号杀掉：原本的崩溃页
                     exitCode != 0 || isSignal ->
                         showExitMessage(this@VMActivity, exitCode, isSignal, logPath.orEmpty())

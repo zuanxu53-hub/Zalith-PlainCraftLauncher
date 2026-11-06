@@ -148,6 +148,30 @@ object ZLNativeInvoker {
         }
     }
 
+    /**
+     * 本次退出是不是用户在游戏菜单里点的「强制关闭」。
+     *
+     * 这种退出也是 exitCode=0、日志里也没有 Minecraft 的正常关闭痕迹（`Stopping!`），
+     * 和「游戏加载到一半自己没了」长得一模一样 —— 之前一律被判成崩溃，弹「游戏没有正常退出」。
+     * 用这个标记把「用户自己关的」和「真的崩了」区分开。
+     */
+    @Volatile
+    var userRequestedExit: Boolean = false
+        private set
+
+    /** 用户主动强制关闭游戏。界面层只调这个，不要直接调 [jvmExit]。 */
+    @Keep
+    @JvmStatic
+    fun exitByUser() {
+        userRequestedExit = true
+        jvmExit(0, false)
+    }
+
+    /** 新一次游戏开始时清掉标记（同一个进程里可能连开两次）。 */
+    fun clearUserRequestedExit() {
+        userRequestedExit = false
+    }
+
     @Keep
     @JvmStatic
     fun jvmExit(exitCode: Int, isSignal: Boolean) {

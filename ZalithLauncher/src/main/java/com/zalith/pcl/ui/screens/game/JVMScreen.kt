@@ -59,7 +59,8 @@ fun JVMScreen(
         operation = forceCloseState,
         onChange = { forceCloseState = it },
         onForceClose = {
-            ZLNativeInvoker.jvmExit(0, false)
+            // 用户自己点的「强制关闭」：标一下，退出时不要当崩溃处理
+            ZLNativeInvoker.exitByUser()
         },
         text = stringResource(R.string.game_dialog_force_close_message)
     )

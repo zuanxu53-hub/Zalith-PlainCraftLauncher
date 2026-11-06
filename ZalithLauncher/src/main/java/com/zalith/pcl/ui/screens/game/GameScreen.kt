@@ -626,7 +626,8 @@ fun GameScreen(
         onChange = { viewModel.forceCloseState = it },
         onForceClose = {
             Terracotta.setWaiting(false)
-            ZLNativeInvoker.jvmExit(0, false)
+            // 同上：这是用户主动关的，别报「游戏崩溃」
+            ZLNativeInvoker.exitByUser()
         },
         text = stringResource(R.string.game_menu_option_force_close_text)
     )
