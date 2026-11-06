@@ -74,6 +74,17 @@ data class PclGlassParams(
     val refractionHeight: Float = 12f,
     /** 边缘高光强度（0..1）。 */
     val highlight: Float = 0.62f,
+    /**
+     * 高光形态：
+     * - `true` = **方向性镜面边**（`HighlightStyle.Default`）：一侧亮、对角渐暗，会随角度变化。
+     *   液态玻璃的「液」感主要就来自这条不对称的边 —— 它模拟的是光线在玻璃厚度上被弯折；
+     * - `false` = 均匀环境柔光（`Ambient`），看着更干净，但那只是磨砂亚克力，不是液态玻璃。
+     */
+    val highlightDirectional: Boolean = true,
+    /** 方向性高光的角度（度），45 = 左上亮、右下暗。 */
+    val highlightAngle: Float = 45f,
+    /** 高光边的宽度（dp）。太粗会像描边，0.8~1.6 之间最像玻璃。 */
+    val highlightWidth: Float = 1.2f,
     /** 投影强度（0..1）。 */
     val shadow: Float = 0.10f,
     /** 背景提饱和度，玻璃看起来更透。 */
@@ -168,6 +179,9 @@ private data class GlassJson(
     @SerializedName("shadow") val shadow: Float? = null,
     @SerializedName("vibrancy") val vibrancy: Boolean? = null,
     @SerializedName("panel") val panel: Boolean? = null,
+    @SerializedName("highlightStyle") val highlightStyle: String? = null,
+    @SerializedName("highlightAngle") val highlightAngle: Float? = null,
+    @SerializedName("highlightWidth") val highlightWidth: Float? = null,
 )
 
 /** `ui.json` 的原始结构；字段全部可缺省，缺省即用默认值。 */
@@ -261,6 +275,9 @@ fun parsePclUiTheme(json: String, fallbackId: String = ""): PclUiTheme {
             refraction = raw.glass?.refraction?.coerceIn(0f, 80f) ?: def.glass.refraction,
             refractionHeight = raw.glass?.refractionHeight?.coerceIn(0f, 60f)
                 ?: def.glass.refractionHeight,
+            highlightDirectional = raw.glass?.highlightStyle?.trim()?.lowercase() != "ambient",
+            highlightAngle = raw.glass?.highlightAngle ?: 45f,
+            highlightWidth = (raw.glass?.highlightWidth ?: 1.2f).coerceIn(0f, 4f),
             highlight = raw.glass?.highlight?.coerceIn(0f, 1f) ?: def.glass.highlight,
             shadow = raw.glass?.shadow?.coerceIn(0f, 1f) ?: def.glass.shadow,
             vibrancy = raw.glass?.vibrancy ?: def.glass.vibrancy,
@@ -430,14 +447,28 @@ fun Modifier.pclSurface(
                 )
             }
         },
-        // 高光用「环境光」而不是默认的 1dp 亮边：
-        // 那圈 1dp 在浅色底上就是一道硬边框，玻璃立刻变塑料壳。
+        // 高光：这是液态玻璃和「磨砂玻璃」的分界线。
+        //
+        // 之前为了修「黑边」把它换成了 Ambient（均匀柔光），结果边框是没了，
+        // 玻璃也没了 —— 均匀柔光看起来就是「没有边」。
+        // 真正的镜面边是**方向性**的：左上亮、对角渐暗，宽度只有 1dp 左右。
+        // 它不像描边那样只画一圈，而是参与亮度叠加（BlendMode.Plus），
+        // 所以背景越亮它越亮、背景越暗它反而收进去，不会变成硬线。
         highlight = {
-            Highlight(
-                width = 0.dp,
-                alpha = glass.highlight.coerceIn(0f, 1f) * 0.4f,
-                style = HighlightStyle.Ambient(intensity = glass.highlight.coerceIn(0f, 1f) * 0.5f),
-            )
+            val a = glass.highlight.coerceIn(0f, 1f)
+            if (glass.highlightDirectional) {
+                Highlight(
+                    width = glass.highlightWidth.dp,
+                    alpha = a,
+                    style = HighlightStyle.Default(angle = glass.highlightAngle),
+                )
+            } else {
+                Highlight(
+                    width = 0.dp,
+                    alpha = a * 0.4f,
+                    style = HighlightStyle.Ambient(intensity = a * 0.5f),
+                )
+            }
         },
         // 内阴影原来写的是 #2A3A55 @0.55 —— 在浅色背景上就是一圈黑边（截图里 版本选择 那圈）。
         // 压成极淡的冷灰，只留一点体积感。

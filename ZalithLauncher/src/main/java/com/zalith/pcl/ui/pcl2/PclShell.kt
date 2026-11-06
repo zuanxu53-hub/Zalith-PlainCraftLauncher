@@ -517,40 +517,54 @@ private fun PclMainContent(
                 )
                 // ---- 玻璃态的「默认壁纸」
                 //
-                // 没设背景图时，窗体底色几乎是纯白；白色玻璃叠在白色上，整块界面就糊成一片白
-                // （实测就是「怎么成这样了」）。这里补一层很淡的冷色渐变 + 两个柔光团：
-                // 色调仍然偏白，但玻璃的边缘折射和高光终于有东西可折。
+                // 这一层是玻璃能不能"看出来"的前提。之前只画了极淡的冷色渐变（alpha 0x33），
+                // 结果背景几乎是纯色 —— blur(纯色) 还是纯色、lens 折射的还是纯色，
+                // 整页就变成「一堆同色卡片叠在一起」，跟液态玻璃毫无关系。
+                //
+                // 玻璃需要**身后有明暗结构**才有东西可折射、可模糊、可弯折。
+                // 所以这里画的是：明显的中性偏冷渐变 + 三块高饱和的光斑（一亮、一深、一青），
+                // 相当于给界面垫一张「模糊处理过的壁纸」。用户自己设了壁纸就不走这条。
                 if (uiTheme != null) {
                     Box(
                         modifier = Modifier
                             .matchParentSize()
                             .drawWithCache {
-                                val base = Brush.linearGradient(
+                                val base = androidx.compose.ui.graphics.Brush.linearGradient(
                                     colorStops = arrayOf(
-                                        0f to androidx.compose.ui.graphics.Color(0x66AFC2DA),
-                                        0.55f to androidx.compose.ui.graphics.Color(0x3393A9C6),
-                                        1f to androidx.compose.ui.graphics.Color(0x4DB9C6D6),
+                                        0f to androidx.compose.ui.graphics.Color(0xFFF4F8FD),
+                                        0.42f to androidx.compose.ui.graphics.Color(0xFFD7E3F2),
+                                        1f to androidx.compose.ui.graphics.Color(0xFFA9BED6),
                                     ),
                                     start = androidx.compose.ui.geometry.Offset(0f, 0f),
-                                    end = androidx.compose.ui.geometry.Offset(size.width, size.height),
+                                    end = androidx.compose.ui.geometry.Offset(size.width * 0.35f, size.height),
                                 )
                                 onDrawBehind {
                                     drawRect(brush = base, size = size)
-                                    // 两个柔光团，给折射一点可抓的边界
+                                    // ① 左上大片高光：给卡片的镜面边提供「亮的一侧」
                                     drawCircle(
-                                        color = androidx.compose.ui.graphics.Color(0x55FFFFFF),
-                                        radius = size.minDimension * 0.55f,
+                                        color = androidx.compose.ui.graphics.Color(0xE6FFFFFF),
+                                        radius = size.minDimension * 0.62f,
                                         center = androidx.compose.ui.geometry.Offset(
-                                            size.width * 0.18f,
-                                            size.height * 0.16f,
+                                            size.width * 0.12f,
+                                            size.height * 0.08f,
                                         ),
                                     )
+                                    // ② 右侧深蓝：给折射提供「暗的一侧」，弯折才看得出来
                                     drawCircle(
-                                        color = androidx.compose.ui.graphics.Color(0x33879BB8),
-                                        radius = size.minDimension * 0.7f,
+                                        color = androidx.compose.ui.graphics.Color(0xB34A6E9C),
+                                        radius = size.minDimension * 0.52f,
                                         center = androidx.compose.ui.geometry.Offset(
                                             size.width * 0.92f,
-                                            size.height * 0.88f,
+                                            size.height * 0.46f,
+                                        ),
+                                    )
+                                    // ③ 左下青色：色散（边缘泛彩）的参考色，也让画面不闷
+                                    drawCircle(
+                                        color = androidx.compose.ui.graphics.Color(0x9987C3D2),
+                                        radius = size.minDimension * 0.40f,
+                                        center = androidx.compose.ui.geometry.Offset(
+                                            size.width * 0.22f,
+                                            size.height * 0.86f,
                                         ),
                                     )
                                 }
