@@ -135,6 +135,12 @@ import com.zalith.pcl.ui.pcl2.theme.PclSurface
 import com.zalith.pcl.ui.pcl2.theme.cornerOr
 import com.zalith.pcl.ui.pcl2.theme.buttonCornerOr
 import com.zalith.pcl.ui.pcl2.theme.pclSurface
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.graphics.graphicsLayer
+import com.zalith.pcl.ui.pcl2.glass.PclLiquidButtonSurface
+import com.zalith.pcl.ui.pcl2.glass.LiquidSlider
+import com.zalith.pcl.ui.pcl2.glass.LiquidToggle
+import com.zalith.pcl.ui.pcl2.theme.PclUiRenderer
 import com.zalith.pcl.ui.pcl2.theme.pclPalette
 import com.zalith.pcl.ui.pcl2.theme.pclHairline
 import kotlinx.coroutines.coroutineScope
@@ -349,29 +355,49 @@ fun PclButton(
         }
     )
 
+    // 玻璃渲染器 + 有底片：交给移植来的液态按钮表面（按压回弹、朝手指形变、高光跟随）。
+    // 其余情况（flat 皮肤 / 老系统 / 没装皮肤）还是 PCL 原来的实心按钮。
+    if (uiTheme != null && uiTheme.renderer == PclUiRenderer.Glass && uiBackdrop != null) {
+        val glass = uiTheme.glass
+        PclLiquidButtonSurface(
+            backdrop = uiBackdrop,
+            shape = RoundedCornerShape(uiTheme.buttonCornerOr(PclDimens.buttonCorner)),
+            modifier = modifier,
+            enabled = enabled,
+            minHeight = height,
+            contentPadding = contentPadding,
+            tint = backgroundColor,
+            tintAlpha = (uiTheme.cardAlpha * 0.85f).coerceIn(0f, 1f),
+            borderColor = borderColor,
+            borderWidth = pclHairline(),
+            highlightAlpha = glass.highlight,
+            blurRadius = (glass.blur * 0.55f).dp,
+            refractionHeight = (glass.refractionHeight * 0.55f).dp,
+            refraction = (glass.refraction * 0.55f).dp,
+            shadowAlpha = glass.shadow,
+            vibrancyEnabled = glass.vibrancy,
+            onClick = onClick,
+        ) {
+            if (logo != null) {
+                Icon(logo, contentDescription = null, tint = borderColor, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(6.dp))
+            }
+            Text(
+                text = text,
+                style = PclTextStyle.button(p).copy(color = borderColor),
+                overflow = TextOverflow.Visible,
+            )
+        }
+        return
+    }
+
     Row(
         // `MyButton` 的按下缩放套在最外层（对应 PCL 的 PanFore RenderTransform）
         modifier = modifier
             .pclPressScale(pressed)
             .heightIn(min = height)
-            .then(
-                if (uiTheme != null) {
-                    // 按钮保留自己的状态色（普通/高亮/危险），只把「表面」交给主题画
-                    Modifier.pclSurface(
-                        theme = uiTheme,
-                        backdrop = uiBackdrop,
-                        shape = RoundedCornerShape(uiTheme.buttonCornerOr(PclDimens.buttonCorner)),
-                        surface = PclSurface.Control,
-                        fallbackColor = backgroundColor,
-                        colorOverride = backgroundColor,
-                        alphaScale = 0.85f,
-                    )
-                } else {
-                    Modifier
-                        .clip(RoundedCornerShape(PclDimens.buttonCorner))
-                        .background(backgroundColor)
-                }
-            )
+            .clip(RoundedCornerShape(PclDimens.buttonCorner))
+            .background(backgroundColor)
             .border(pclHairline(), borderColor, RoundedCornerShape(PclDimens.buttonCorner))
             .clickable(enabled = enabled, interactionSource = interaction, indication = null, onClick = onClick)
             .padding(contentPadding),
@@ -1658,7 +1684,20 @@ fun PclSwitchItem(
             }
         }
         Spacer(Modifier.width(12.dp))
-        PclCheckBox(text = "", checked = checked, enabled = enabled, onCheckedChange = onCheckedChange)
+        val uiTheme = LocalPclUiTheme.current
+        val uiBackdrop = LocalPclBackdrop.current
+        if (uiTheme?.renderer == PclUiRenderer.Glass && uiBackdrop != null) {
+            // 移植自源码的液态开关：那个小圆球在轨道里「流动」过去。
+            // 原组件是 64×28，正好替掉 PCL 的复选框位置。
+            LiquidToggle(
+                selected = { checked },
+                onSelect = onCheckedChange,
+                backdrop = uiBackdrop,
+                modifier = Modifier.graphicsLayer { alpha = if (enabled) 1f else 0.45f },
+            )
+        } else {
+            PclCheckBox(text = "", checked = checked, enabled = enabled, onCheckedChange = onCheckedChange)
+        }
     }
 }
 
@@ -1684,6 +1723,30 @@ fun PclSlider(
     onValueChangeFinished: (() -> Unit)? = null,
 ) {
     val p = pclPalette
+    val uiTheme = LocalPclUiTheme.current
+    val uiBackdrop = LocalPclBackdrop.current
+    if (uiTheme?.renderer == PclUiRenderer.Glass && uiBackdrop != null && enabled) {
+        // 移植自源码的液态滑条：拖拽带阻尼回弹，滑块是液态形变。
+        // 原组件没有「本轮拖动结束」的回调，这里用 350ms 静默兜一个给调用方。
+        var touched by remember { mutableStateOf(false) }
+        LaunchedEffect(value) {
+            if (!touched) {
+                touched = true
+                return@LaunchedEffect
+            }
+            delay(350)
+            onValueChangeFinished?.invoke()
+        }
+        LiquidSlider(
+            value = { value.coerceIn(0f, 1f) },
+            onValueChange = onValueChange,
+            valueRange = 0f..1f,
+            visibilityThreshold = 0.01f,
+            backdrop = uiBackdrop,
+            modifier = modifier,
+        )
+        return
+    }
     val activeColor = if (enabled) p.color2 else p.gray4
 
     // MySlider.xaml.vb:87 / :103 —— 手柄按下的缩放：

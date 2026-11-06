@@ -16,6 +16,7 @@ coreSplashscreen = "1.2.0"
 desugarJdkLibs = "2.1.5"
 editorBom = "0.24.6"
 backdrop = "2.0.1"
+kyantShapes = "1.2.1"
 fishnet = "1.1.0"
 gson = "2.14.0"
 kotlin = "2.4.20"
@@ -65,6 +66,7 @@ editor = { module = "io.github.rosemoe:editor" }
 editor-bom = { module = "io.github.rosemoe:editor-bom", version.ref = "editorBom" }
 editor-language-textmate = { module = "io.github.rosemoe:language-textmate" }
 backdrop = { module = "io.github.kyant0:backdrop", version.ref = "backdrop" }
+kyant-shapes = { module = "io.github.kyant0:shapes", version.ref = "kyantShapes" }
 fishnet = { module = "io.github.kyant0:fishnet", version.ref = "fishnet" }
 jspecify = { module = "org.jspecify:jspecify", version.ref = "jspecify" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
