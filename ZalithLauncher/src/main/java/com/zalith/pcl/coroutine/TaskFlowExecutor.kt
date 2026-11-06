@@ -172,7 +172,18 @@ class TaskFlowExecutor(
         job = scope.launch(Dispatchers.IO) {
             //持有保活，避免启动器切至后台后任务流被系统中断
             TaskKeepAlive.acquire()
+            val self = coroutineContext[Job]
             try {
+                // 【每次异步执行都是全新的一条任务流】必须先把上一次残留的阶段清掉。
+                //
+                // 不清的后果：`phases` 只增不减，`executePhases` 又从 `currentPhaseIndex = -1`
+                // 开始「从头跑」。于是
+                //     启动版本 A → 取消 → 启动版本 B
+                // 时，`phases` 里还躺着 A 的那一批，B 只是被追加在后面 ——
+                // 实际执行的第一个阶段是 **A**，游戏进去就是 A 的版本。
+                // （`cancel()` 里也会清一次，这里再清是防「上一次异常退出没走 cancel」。）
+                phases.clear()
+                currentPhaseIndex = -1
                 onStart()
                 executePhases(onComplete, onError, onCancel)
             } finally {
@@ -181,7 +192,11 @@ class TaskFlowExecutor(
                 // 一个已经跑完（或已经失败）的任务流仍然算「在跑」，同一个执行器上的
                 // 下一次请求会被 `installGame` / `modifyVersion` **静默拒绝**（直接 return，
                 // 连一句提示都没有）—— 表现就是「点安装毫无反应」。
-                job = null
+                //
+                // 但只能复位**自己**：`cancel()` 会把 `job` 置空后立刻允许下一次启动，
+                // 若旧协程稍晚退场时无条件 `job = null`，就会把**新任务**的 job 抹掉，
+                // 于是 `isRunning()` 在真正跑的时候返回 false，出现重入。
+                if (job === self) job = null
             }
         }
     }
@@ -192,9 +207,14 @@ class TaskFlowExecutor(
         //先取消当前正在执行的任务及其所有子协程
         currentTaskJob?.cancel()
         currentTaskJob = null
-        
+
         job?.cancel()
         job = null
+
+        // 【取消 = 丢弃没跑完的阶段】不清的话，下一次 `executePhases` 会从
+        // `currentPhaseIndex = -1` 开始，把上一次（已被取消的那次）的步骤从头再跑一遍，
+        // 表现就是「启动 A → 取消 → 启动 B，进去的却是 A」。
+        phases.clear()
 
         _tasksFlow.update { emptyList() }
         currentPhaseIndex = -1
