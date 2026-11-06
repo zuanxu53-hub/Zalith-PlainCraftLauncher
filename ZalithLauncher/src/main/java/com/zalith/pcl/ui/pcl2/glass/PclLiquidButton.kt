@@ -14,6 +14,7 @@ package com.zalith.pcl.ui.pcl2.glass
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.heightIn
@@ -68,6 +69,8 @@ fun PclLiquidButtonSurface(
     refractionHeight: Dp = 8.dp,
     refraction: Dp = 16.dp,
     shadowAlpha: Float = 0.10f,
+    /** 文字是否居中（PCL 的按钮本来就是居中，玻璃外壳容易丢）。 */
+    textCenter: Boolean = true,
     vibrancyEnabled: Boolean = true,
     onClick: () -> Unit,
     content: @Composable RowScope.() -> Unit,
@@ -89,9 +92,18 @@ fun PclLiquidButtonSurface(
                         lens(refractionHeight.toPx(), refraction.toPx())
                     }
                 },
-                highlight = { Highlight(width = 1.dp, alpha = highlightAlpha) },
+                // 环境高光，不画 1dp 硬边（浅底上那圈会被当成描边）
+                highlight = {
+                    Highlight(
+                        width = 0.dp,
+                        alpha = highlightAlpha * 0.4f,
+                        style = com.kyant.backdrop.highlight.HighlightStyle.Ambient(
+                            intensity = highlightAlpha * 0.5f,
+                        ),
+                    )
+                },
                 innerShadow = {
-                    InnerShadow(radius = 8.dp, color = Color(0xFF2A3A55), alpha = 0.55f)
+                    InnerShadow(radius = 16.dp, color = Color(0xFF9AA6B4), alpha = 0.14f)
                 },
                 shadow = {
                     Shadow(radius = 18.dp, color = Color(0xFF23324A), alpha = shadowAlpha)
@@ -139,6 +151,8 @@ fun PclLiquidButtonSurface(
             .heightIn(min = minHeight)
             .padding(contentPadding),
         verticalAlignment = Alignment.CenterVertically,
+        // 必须显式居中：PCL 的 MyButton 文字是居中的，少了这一行就变成左对齐
+        horizontalArrangement = if (textCenter) Arrangement.Center else Arrangement.Start,
         content = content,
     )
 }

@@ -233,6 +233,14 @@ object PclPalettes {
      */
     val blue: PclPalette = PclColorMath.generate(hue = 210, sat = 85, adjust = 0, hueTopbarDelta = 0)
 
+    /**
+     * 液态玻璃皮肤专用：**饱和度归零**的中性色板。
+     *
+     * 玻璃要无色才透得干净；带绿/蓝调时整块卡片都会被染色，观感从玻璃变成塑料板。
+     * 玻璃态下换成这组灰阶，只保留明度层次，颜色交给壁纸。
+     */
+    val liquidGlass: PclPalette = PclColorMath.generate(hue = 210, sat = 0, adjust = 2)
+
     /** `Application.xaml` 中随发行版声明的静态设计色板（留作对照）。 */
     val blueDesignTokens = PclPalette(
         color1 = Color(0xFF343D4A),

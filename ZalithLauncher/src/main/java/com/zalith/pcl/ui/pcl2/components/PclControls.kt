@@ -135,6 +135,7 @@ import com.zalith.pcl.ui.pcl2.theme.PclSurface
 import com.zalith.pcl.ui.pcl2.theme.cornerOr
 import com.zalith.pcl.ui.pcl2.theme.buttonCornerOr
 import com.zalith.pcl.ui.pcl2.theme.pclSurface
+import com.zalith.pcl.ui.pcl2.theme.pclSurfaceBordered
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.graphics.graphicsLayer
 import com.zalith.pcl.ui.pcl2.glass.PclLiquidButtonSurface
@@ -369,7 +370,9 @@ fun PclButton(
             tint = backgroundColor,
             tintAlpha = (uiTheme.cardAlpha * 0.85f).coerceIn(0f, 1f),
             borderColor = borderColor,
-            borderWidth = pclHairline(),
+            // 玻璃态不画 PCL 的 1dp 描边
+            borderWidth = 0.dp,
+            textCenter = uiTheme.buttonTextCenter,
             highlightAlpha = glass.highlight,
             blurRadius = (glass.blur * 0.55f).dp,
             refractionHeight = (glass.refractionHeight * 0.55f).dp,
@@ -592,6 +595,8 @@ fun PclPillButton(
     onClick: () -> Unit,
 ) {
     val p = pclPalette
+    val uiTheme = LocalPclUiTheme.current
+    val uiBackdrop = LocalPclBackdrop.current
     val (interaction, active) = rememberInteraction()
 
     val background = animateTo(
@@ -623,8 +628,15 @@ fun PclPillButton(
             // PCL 的 `MinHeight/MaxHeight="27"`：这里用 heightIn 表达最小高，
             // 万一字号/行高比 27 大，胶囊就自己长高，而不是把文字下半截裁掉。
             .heightIn(min = PclDimens.navPillHeight)
-            .clip(RoundedCornerShape(PclDimens.navPillCorner))
-            .background(background)
+            .pclSurface(
+                theme = uiTheme,
+                backdrop = uiBackdrop,
+                shape = RoundedCornerShape(PclDimens.navPillCorner),
+                surface = PclSurface.Control,
+                fallbackColor = background,
+                colorOverride = background,
+                role = "pill",
+            )
             .clickable(enabled = enabled, interactionSource = interaction, indication = null, onClick = onClick)
             // 有图标时按 XAML 的 `ShapeLogo Margin="12,0,0,0"` + `LabText Margin="8,0,12,0"`；
             // 没有图标时（「全部 / 已启用 / 已禁用」这类过滤胶囊）走的是
@@ -699,6 +711,8 @@ fun PclIconTextButton(
     onClick: () -> Unit,
 ) {
     val p = pclPalette
+    val uiTheme = LocalPclUiTheme.current
+    val uiBackdrop = LocalPclBackdrop.current
     val (interaction, active) = rememberInteraction()
 
     val borderColor = animateTo(
@@ -720,9 +734,16 @@ fun PclIconTextButton(
     Row(
         modifier = modifier
             .heightIn(min = height)
-            .clip(RoundedCornerShape(PclDimens.buttonCorner))
-            .background(background)
-            .border(pclHairline(), borderColor, RoundedCornerShape(PclDimens.buttonCorner))
+            .pclSurfaceBordered(
+                theme = uiTheme,
+                backdrop = uiBackdrop,
+                shape = RoundedCornerShape(uiTheme.buttonCornerOr(PclDimens.buttonCorner)),
+                surface = PclSurface.Control,
+                fillColor = background,
+                borderColor = borderColor,
+                borderWidth = pclHairline(),
+                role = "button",
+            )
             .clickable(enabled = enabled, interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -841,6 +862,7 @@ fun PclCard(
                         shape = RoundedCornerShape(uiTheme.cornerOr(PclDimens.cardCorner)),
                         surface = PclSurface.Card,
                         fallbackColor = p.cardBackground,
+                        role = "card",
                     )
                 } else {
                     Modifier
@@ -1115,6 +1137,7 @@ fun PclHint(
                         fallbackColor = background,
                         colorOverride = background,
                         alphaScale = 0.9f,
+                        role = "hint",
                     )
                 } else {
                     Modifier.clip(RoundedCornerShape(2.dp)).background(background)
@@ -1221,6 +1244,8 @@ fun PclListItem(
     onClick: (() -> Unit)? = null,
 ) {
     val p = pclPalette
+    val uiTheme = LocalPclUiTheme.current
+    val uiBackdrop = LocalPclBackdrop.current
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val pressed by interaction.collectIsPressedAsState()
@@ -1299,9 +1324,16 @@ fun PclListItem(
                     Modifier
                 },
             )
-            .clip(RoundedCornerShape(corner))
-            .background(background)
-            .border(pclHairline(), borderColor, RoundedCornerShape(corner))
+            .pclSurfaceBordered(
+                theme = uiTheme,
+                backdrop = uiBackdrop,
+                shape = RoundedCornerShape(corner),
+                surface = PclSurface.Control,
+                fillColor = background,
+                borderColor = borderColor,
+                borderWidth = pclHairline(),
+                role = "item",
+            )
             .then(
                 if (clickable) {
                     Modifier.clickable(
@@ -1478,6 +1510,8 @@ fun PclCheckBox(
     onCheckedChange: (Boolean) -> Unit,
 ) {
     val p = pclPalette
+    val uiTheme = LocalPclUiTheme.current
+    val uiBackdrop = LocalPclBackdrop.current
     val (interaction, _) = rememberInteraction()
     // 边框色：勾选态变更 150ms（MyCheckBox.AnimationTimeOfCheck）
     val borderColor = animateTo(
@@ -1502,9 +1536,16 @@ fun PclCheckBox(
         Box(
             modifier = Modifier
                 .size(PclDimens.checkBoxSize)
-                .clip(RoundedCornerShape(PclDimens.checkBoxCorner))
-                .background(p.halfWhite)
-                .border(PclDimens.checkBoxBorder, borderColor, RoundedCornerShape(PclDimens.checkBoxCorner)),
+                .pclSurfaceBordered(
+                    theme = uiTheme,
+                    backdrop = uiBackdrop,
+                    shape = RoundedCornerShape(PclDimens.checkBoxCorner),
+                    surface = PclSurface.Control,
+                    fillColor = p.halfWhite,
+                    borderColor = borderColor,
+                    borderWidth = PclDimens.checkBoxBorder,
+                    role = "input",
+                ),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
@@ -1546,6 +1587,8 @@ fun PclRadioBox(
     onCheckedChange: (Boolean) -> Unit,
 ) {
     val p = pclPalette
+    val uiTheme = LocalPclUiTheme.current
+    val uiBackdrop = LocalPclBackdrop.current
     val (interaction, _) = rememberInteraction()
     // 边框色：勾选态变更 150ms（MyRadioBox.AnimationTimeOfCheck）
     val borderColor = animateTo(
@@ -1571,9 +1614,16 @@ fun PclRadioBox(
             Box(
                 modifier = Modifier
                     .size(PclDimens.radioBoxSize)
-                    .clip(CircleShape)
-                    .background(p.halfWhite)
-                    .border(PclDimens.radioBoxBorder, borderColor, CircleShape),
+                    .pclSurfaceBordered(
+                        theme = uiTheme,
+                        backdrop = uiBackdrop,
+                        shape = CircleShape,
+                        surface = PclSurface.Control,
+                        fillColor = p.halfWhite,
+                        borderColor = borderColor,
+                        borderWidth = PclDimens.radioBoxBorder,
+                        role = "input",
+                    ),
                 contentAlignment = Alignment.Center,
             ) {
                 Box(
@@ -1725,18 +1775,9 @@ fun PclSlider(
     val p = pclPalette
     val uiTheme = LocalPclUiTheme.current
     val uiBackdrop = LocalPclBackdrop.current
-    if (uiTheme?.renderer == PclUiRenderer.Glass && uiBackdrop != null && enabled) {
-        // 移植自源码的液态滑条：拖拽带阻尼回弹，滑块是液态形变。
-        // 原组件没有「本轮拖动结束」的回调，这里用 350ms 静默兜一个给调用方。
-        var touched by remember { mutableStateOf(false) }
-        LaunchedEffect(value) {
-            if (!touched) {
-                touched = true
-                return@LaunchedEffect
-            }
-            delay(350)
-            onValueChangeFinished?.invoke()
-        }
+    // 液态滑条默认**不启用**：那个组件的手势和外面的 verticalScroll 抢事件，
+    // 实测「按下去拖不动」。插件想试可以在 ui.json 里写 `"slider": {"liquid": true}`。
+    if (uiTheme?.sliderLiquid == true && uiBackdrop != null && enabled) {
         LiquidSlider(
             value = { value.coerceIn(0f, 1f) },
             onValueChange = onValueChange,
@@ -1764,6 +1805,22 @@ fun PclSlider(
         modifier = modifier
             .fillMaxWidth()
             .height(16.dp)
+            .then(
+                if (uiTheme != null) {
+                    Modifier.pclSurface(
+                        theme = uiTheme,
+                        backdrop = uiBackdrop,
+                        shape = RoundedCornerShape(8.dp),
+                        surface = PclSurface.Control,
+                        fallbackColor = Color.Transparent,
+                        alphaScale = 0.75f,
+                        role = "slider",
+                    )
+                } else {
+                    Modifier
+                },
+            )
+            .padding(horizontal = 8.dp)
             .pointerInput(enabled) {
                 if (!enabled) return@pointerInput
                 awaitPointerEventScope {
@@ -1827,12 +1884,21 @@ fun PclTextBox(
     onValueChange: (String) -> Unit,
 ) {
     val p = pclPalette
+    val uiTheme = LocalPclUiTheme.current
+    val uiBackdrop = LocalPclBackdrop.current
     Box(
         modifier = modifier
             .height(28.dp)
-            .clip(RoundedCornerShape(3.dp))
-            .background(p.halfWhite)
-            .border(pclHairline(), p.bg0, RoundedCornerShape(3.dp))
+            .pclSurfaceBordered(
+                theme = uiTheme,
+                backdrop = uiBackdrop,
+                shape = RoundedCornerShape(3.dp),
+                surface = PclSurface.Control,
+                fillColor = p.halfWhite,
+                borderColor = p.bg0,
+                borderWidth = pclHairline(),
+                role = "input",
+            )
             .padding(horizontal = 7.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
@@ -1889,6 +1955,8 @@ fun PclSearchBox(
     onValueChange: (String) -> Unit,
 ) {
     val p = pclPalette
+    val uiTheme = LocalPclUiTheme.current
+    val uiBackdrop = LocalPclBackdrop.current
     PclCard(modifier = modifier, contentPadding = PaddingValues(0.dp)) {
         Box(modifier = Modifier.fillMaxWidth().height(40.dp), contentAlignment = Alignment.CenterStart) {
             // `Path` 在 `MySearchBox` 的 Grid 里是左对齐、垂直居中（Height=14 显式指定），
@@ -1996,6 +2064,8 @@ fun <T> PclComboBox(
     onSelect: (T) -> Unit,
 ) {
     val p = pclPalette
+    val uiTheme = LocalPclUiTheme.current
+    val uiBackdrop = LocalPclBackdrop.current
     val density = LocalDensity.current
     var expanded by remember { mutableStateOf(false) }
     val (interaction, active) = rememberInteraction()
@@ -2036,9 +2106,16 @@ fun <T> PclComboBox(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = height)
-                .clip(RoundedCornerShape(3.dp))
-                .background(background)
-                .border(pclHairline(), borderColor, RoundedCornerShape(3.dp))
+                .pclSurfaceBordered(
+                    theme = uiTheme,
+                    backdrop = uiBackdrop,
+                    shape = RoundedCornerShape(3.dp),
+                    surface = PclSurface.Control,
+                    fillColor = background,
+                    borderColor = borderColor,
+                    borderWidth = pclHairline(),
+                    role = "input",
+                )
                 .clickable(
                     enabled = enabled,
                     interactionSource = interaction,

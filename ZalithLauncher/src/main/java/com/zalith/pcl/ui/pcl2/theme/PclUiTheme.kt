@@ -30,6 +30,7 @@ package com.zalith.pcl.ui.pcl2.theme
 
 import android.os.Build
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CornerBasedShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -39,6 +40,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
@@ -79,6 +81,32 @@ data class PclGlassParams(
     val panel: Boolean = true,
 )
 
+/** 描边策略：`none` = 玻璃态一律不画线；`hairline` = 保留 PCL 的细线。 */
+enum class PclBorderMode { None, Hairline }
+
+/** 描边参数（`border` 段）。 */
+data class PclBorderStyle(
+    val mode: PclBorderMode = PclBorderMode.None,
+    /** 覆盖描边颜色；null = 用 PCL 原本的边框色。 */
+    val color: Color? = null,
+    val alpha: Float = 1f,
+)
+
+/**
+ * 单个「角色」的样式覆盖。
+ *
+ * 角色是启动器暴露给插件的**接口点**：`card` / `button` / `input` / `item` / `hint` /
+ * `pill` / `slider` / `sidebar`。插件可以按角色单独决定「要不要玻璃、什么颜色」，
+ * 这样某一块不满意只改 ui.json，不用重新编译启动器。
+ */
+data class PclRoleStyle(
+    /** 这块要不要玻璃；null = 跟随 `renderer`。 */
+    val glass: Boolean? = null,
+    val color: Color? = null,
+    val alpha: Float? = null,
+    val corner: Float? = null,
+)
+
 /**
  * 一套皮肤。
  *
@@ -103,6 +131,16 @@ data class PclUiTheme(
     /** 按钮圆角（dp）；null = 用 PCL 原本的圆角。 */
     val buttonCorner: Float? = null,
     val glass: PclGlassParams = PclGlassParams(),
+    /** 角色级覆盖（见 [PclRoleStyle]）。 */
+    val roles: Map<String, PclRoleStyle> = emptyMap(),
+    /** 描边策略，默认 `none`（玻璃态不该有硬边）。 */
+    val border: PclBorderStyle = PclBorderStyle(),
+    /** true = 玻璃态下把色板换成中性灰阶（白色主题）。 */
+    val neutralPalette: Boolean = false,
+    /** true = 滑条用移植来的液态实现（会与页面滚动抢手势，默认关）。 */
+    val sliderLiquid: Boolean = false,
+    /** 按钮文字是否强制居中；PCL 原本就是居中，玻璃外壳容易丢，默认开。 */
+    val buttonTextCenter: Boolean = true,
 )
 
 /* ---------------------------------------------------------------- 解析 */
@@ -123,6 +161,27 @@ private data class GlassJson(
 )
 
 /** `ui.json` 的原始结构；字段全部可缺省，缺省即用默认值。 */
+private data class RoleJson(
+    @SerializedName("glass") val glass: Boolean? = null,
+    @SerializedName("color") val color: String? = null,
+    @SerializedName("alpha") val alpha: Float? = null,
+    @SerializedName("corner") val corner: Float? = null,
+)
+
+private data class BorderJson(
+    @SerializedName("mode") val mode: String? = null,
+    @SerializedName("color") val color: String? = null,
+    @SerializedName("alpha") val alpha: Float? = null,
+)
+
+private data class SliderJson(
+    @SerializedName("liquid") val liquid: Boolean? = null,
+)
+
+private data class ButtonJson(
+    @SerializedName("textAlign") val textAlign: String? = null,
+)
+
 private data class ThemeJson(
     @SerializedName("id") val id: String? = null,
     @SerializedName("name") val name: String? = null,
@@ -132,6 +191,11 @@ private data class ThemeJson(
     @SerializedName("corner") val corner: Float? = null,
     @SerializedName("buttonCorner") val buttonCorner: Float? = null,
     @SerializedName("glass") val glass: GlassJson? = null,
+    @SerializedName("roles") val roles: Map<String, RoleJson>? = null,
+    @SerializedName("border") val border: BorderJson? = null,
+    @SerializedName("palette") val palette: String? = null,
+    @SerializedName("slider") val slider: SliderJson? = null,
+    @SerializedName("button") val button: ButtonJson? = null,
 )
 
 private val themeGson: Gson = Gson()
@@ -160,6 +224,26 @@ fun parsePclUiTheme(json: String, fallbackId: String = ""): PclUiTheme {
         sidebarAlpha = raw.sidebar?.alpha?.coerceIn(0f, 1f),
         corner = raw.corner?.takeIf { it >= 0f },
         buttonCorner = raw.buttonCorner?.takeIf { it >= 0f },
+        roles = raw.roles?.mapNotNull { (key, value) ->
+            val style = PclRoleStyle(
+                glass = value.glass,
+                color = value.color?.let(::parseHexColor),
+                alpha = value.alpha?.coerceIn(0f, 1f),
+                corner = value.corner?.takeIf { it >= 0f },
+            )
+            key.trim().lowercase().ifBlank { null }?.let { it to style }
+        }?.toMap().orEmpty(),
+        border = PclBorderStyle(
+            mode = when (raw.border?.mode?.trim()?.lowercase()) {
+                "hairline", "line", "stroke" -> PclBorderMode.Hairline
+                else -> PclBorderMode.None
+            },
+            color = raw.border?.color?.let(::parseHexColor),
+            alpha = raw.border?.alpha?.coerceIn(0f, 1f) ?: 1f,
+        ),
+        neutralPalette = raw.palette?.trim()?.lowercase() == "neutral",
+        sliderLiquid = raw.slider?.liquid ?: false,
+        buttonTextCenter = raw.button?.textAlign?.trim()?.lowercase() != "start",
         glass = PclGlassParams(
             blur = raw.glass?.blur?.coerceIn(0f, 40f) ?: def.glass.blur,
             refraction = raw.glass?.refraction?.coerceIn(0f, 80f) ?: def.glass.refraction,
@@ -257,14 +341,23 @@ fun Modifier.pclSurface(
     fallbackColor: Color = Color.White,
     colorOverride: Color? = null,
     alphaScale: Float = 1f,
+    /**
+     * 角色名（`card` / `button` / `input` / `item` / `hint` / `pill` / `slider`）。
+     *
+     * 插件可以在 ui.json 的 `roles` 里按角色单独指定「要不要玻璃、什么颜色」——
+     * 这是启动器开放给插件的接口点，改外观不用改启动器代码。
+     */
+    role: String = "",
 ): Modifier {
     if (theme == null) return this.background(fallbackColor, shape)
 
-    val color = colorOverride ?: theme.cardColor
-    val alpha = (theme.cardAlpha * alphaScale).coerceIn(0f, 1f)
+    val roleStyle = theme.roles[role]
+    val color = roleStyle?.color ?: colorOverride ?: theme.cardColor
+    val alpha = ((roleStyle?.alpha ?: theme.cardAlpha) * alphaScale).coerceIn(0f, 1f)
+    // 角色显式关掉玻璃（或整体渲染器是 flat / 老系统 / 无底片）→ 老老实实填色
+    val wantGlass = roleStyle?.glass ?: true
 
-    // 非玻璃渲染器、老系统、或拿不到底片：老老实实填色
-    if (theme.renderer == PclUiRenderer.Flat || backdrop == null || !pclGlassSupported) {
+    if (!wantGlass || theme.renderer == PclUiRenderer.Flat || backdrop == null || !pclGlassSupported) {
         return this.background(color.copy(alpha = alpha), shape)
     }
 
@@ -289,23 +382,60 @@ fun Modifier.pclSurface(
                 )
             }
         },
+        // 高光用「环境光」而不是默认的 1dp 亮边：
+        // 那圈 1dp 在浅色底上就是一道硬边框，玻璃立刻变塑料壳。
         highlight = {
             Highlight(
-                width = 1.dp,
-                alpha = glass.highlight.coerceIn(0f, 1f),
-                style = HighlightStyle.Default,
+                width = 0.dp,
+                alpha = glass.highlight.coerceIn(0f, 1f) * 0.4f,
+                style = HighlightStyle.Ambient(intensity = glass.highlight.coerceIn(0f, 1f) * 0.5f),
             )
         },
+        // 内阴影原来写的是 #2A3A55 @0.55 —— 在浅色背景上就是一圈黑边（截图里 版本选择 那圈）。
+        // 压成极淡的冷灰，只留一点体积感。
         innerShadow = {
-            InnerShadow(radius = 8.dp, color = Color(0xFF2A3A55), alpha = 0.55f)
+            InnerShadow(radius = 18.dp, color = Color(0xFF9AA6B4), alpha = 0.14f)
         },
         shadow = {
-            Shadow(radius = 18.dp, color = Color(0xFF23324A), alpha = glass.shadow.coerceIn(0f, 1f))
+            Shadow(
+                radius = 26.dp,
+                color = Color(0xFF4A5666),
+                alpha = (glass.shadow.coerceIn(0f, 1f) * 0.6f),
+            )
         },
         onDrawSurface = {
             if (alpha > 0f) drawRect(color.copy(alpha = alpha))
         },
     )
+}
+
+/** 皮肤表面 + PCL 描边：**装了皮肤就不画描边**（玻璃自带柔光边缘，再叠一圈线就成了塑料壳）。 */
+fun Modifier.pclSurfaceBordered(
+    theme: PclUiTheme?,
+    backdrop: Backdrop?,
+    shape: Shape,
+    surface: PclSurface,
+    fillColor: Color,
+    borderColor: Color,
+    borderWidth: Dp,
+    alphaScale: Float = 1f,
+    role: String = "",
+): Modifier {
+    val base = pclSurface(
+        theme = theme,
+        backdrop = backdrop,
+        shape = shape,
+        surface = surface,
+        fallbackColor = fillColor,
+        colorOverride = fillColor,
+        alphaScale = alphaScale,
+        role = role,
+    )
+    // 装了皮肤时由插件说了算：`border.mode = none` 就一条线都不画
+    val drawBorder = theme == null || theme.border.mode == PclBorderMode.Hairline
+    if (!drawBorder) return base
+    val color = theme?.border?.color?.copy(alpha = theme.border.alpha) ?: borderColor
+    return base.border(borderWidth, color, shape)
 }
 
 /** 皮肤给侧栏用的底色：没装皮肤或没写 sidebar 就返回 null（调用方用原色）。 */

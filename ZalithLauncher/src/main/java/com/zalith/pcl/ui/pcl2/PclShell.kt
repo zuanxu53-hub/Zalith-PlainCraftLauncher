@@ -402,7 +402,10 @@ fun PclMainScreen(
             .background(if (prankActive) PclPrank.desktopColor else Color.Transparent),
     ) {
         val uiScale = PclSkinSettings.resolveScale(maxWidth.value, maxHeight.value)
-        PclTheme(palette, uiScale) {
+        // 装了皮肤插件就换成中性灰阶色板：玻璃本身要无色，绿/蓝会把整块玻璃染色。
+        // 插件在 ui.json 里写 `"palette": "neutral"` 才换成中性灰阶；不写就沿用 PCL 自己的色板
+        val activePalette = if (PclUiRuntime.theme?.neutralPalette == true) PclPalettes.liquidGlass else palette
+        PclTheme(activePalette, uiScale) {
             PclMainContent(nav, runtime, backgroundOpacity)
         }
 
