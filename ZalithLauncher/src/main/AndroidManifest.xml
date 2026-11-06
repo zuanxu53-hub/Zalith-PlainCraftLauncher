@@ -60,70 +60,14 @@
             </intent-filter>
         </activity>
 
+        <!-- 分享 / 「用其它应用打开」只保留一个入口。
+             以前这里是三个 activity-alias（导入整合包 / 导入控制布局 / 导入到启动器），
+             分享一个文件时分享面板会并排出现三条同名启动器条目，用户根本不知道点哪个。
+             现在合并成一条：具体是整合包还是键位布局，交给界面层按文件名后缀判断
+             （json → 布局，zip / mrpack / 其它 → 整合包）。
+             过滤器取并集，保证文件管理器「打开方式」和各类分享都还能命中。 -->
         <activity-alias
             android:label="@string/import_modpack"
-            android:name="com.zalith.pcl.activity.ImportModpackActivity"
-            android:exported="true"
-            android:targetActivity=".ui.activities.SplashActivity">
-
-            <meta-data
-                android:name="import_type"
-                android:value="modpack" />
-
-            <intent-filter>
-                <category android:name="android.intent.category.DEFAULT"/>
-                <action android:name="android.intent.action.VIEW"/>
-                <data android:scheme="file"/>
-                <data android:scheme="content"/>
-                <data android:mimeType="application/*"/>
-            </intent-filter>
-            <intent-filter>
-                <category android:name="android.intent.category.DEFAULT"/>
-                <action android:name="android.intent.action.SEND"/>
-                <data android:mimeType="application/*"/>
-            </intent-filter>
-        </activity-alias>
-
-        <activity-alias
-            android:label="@string/control_manage_import"
-            android:name="com.zalith.pcl.activity.ImportControlsActivity"
-            android:exported="true"
-            android:targetActivity=".ui.activities.SplashActivity">
-
-            <meta-data
-                android:name="import_type"
-                android:value="controls" />
-
-            <intent-filter>
-                <category android:name="android.intent.category.DEFAULT"/>
-                <action android:name="android.intent.action.VIEW"/>
-                <data android:scheme="file"/>
-                <data android:scheme="content"/>
-                <data android:mimeType="application/json"/>
-                <!-- 很多文件管理器 / 聊天软件分享 .json 时用的是下面这些类型，
-                     只声明 application/json 会导致“分享过来只启动启动器、布局没导入” -->
-                <data android:mimeType="application/x-json"/>
-                <data android:mimeType="text/plain"/>
-                <data android:mimeType="application/octet-stream"/>
-                <data android:mimeType="text/json"/>
-            </intent-filter>
-            <intent-filter>
-                <category android:name="android.intent.category.DEFAULT"/>
-                <action android:name="android.intent.action.SEND"/>
-                <data android:mimeType="application/json"/>
-                <data android:mimeType="application/x-json"/>
-                <data android:mimeType="text/plain"/>
-                <data android:mimeType="application/octet-stream"/>
-                <data android:mimeType="text/json"/>
-            </intent-filter>
-        </activity-alias>
-
-        <!-- 通用「导入到启动器」入口。
-             必须声明 */* 才能被那些分享时 type=*/* 的应用（含本应用自己的 shareFile）
-             匹配到 —— Android 的规则是 intent 类型 */* 只匹配同声明 */* 的过滤器。
-             真正的类型判断放到界面层按文件名后缀做（json → 键位，zip/mrpack → 整合包）。 -->
-        <activity-alias
-            android:label="@string/import_anything"
             android:name="com.zalith.pcl.activity.ImportAnythingActivity"
             android:exported="true"
             android:targetActivity=".ui.activities.SplashActivity">
@@ -132,17 +76,27 @@
                 android:name="import_type"
                 android:value="auto" />
 
-            <intent-filter>
-                <category android:name="android.intent.category.DEFAULT"/>
-                <action android:name="android.intent.action.SEND"/>
-                <data android:mimeType="*/*"/>
-            </intent-filter>
+            <!-- 文件管理器「用其它应用打开」：压缩包 / 整合包 -->
             <intent-filter>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <action android:name="android.intent.action.VIEW"/>
                 <data android:scheme="file"/>
                 <data android:scheme="content"/>
-                <data android:mimeType="*/*" android:pathPattern=".*\\.json"/>
+                <data android:mimeType="application/*"/>
+            </intent-filter>
+            <!-- 同上，但很多文件管理器把 .json 报成 text/plain -->
+            <intent-filter>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <action android:name="android.intent.action.VIEW"/>
+                <data android:scheme="file"/>
+                <data android:scheme="content"/>
+                <data android:mimeType="text/plain"/>
+            </intent-filter>
+            <!-- 分享：必须声明 */* 才能被 type=*/* 的应用（含本应用自己的分享）匹配到 -->
+            <intent-filter>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <action android:name="android.intent.action.SEND"/>
+                <data android:mimeType="*/*"/>
             </intent-filter>
         </activity-alias>
 

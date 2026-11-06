@@ -528,7 +528,7 @@ object AllSettings : SettingsRegistry() {
      * 弱网/慢存储下的超时与失败重试，调大更适合带宽充足的网络。
      * 各下载器统一读 [com.zalith.pcl.game.version.download.currentDownloadThreads]。
      */
-    val downloadThreads = intSetting("downloadThreads", 8, 1..128)
+    val downloadThreads = intSetting("downloadThreads", 16, 1..128)
 
     //Control
     /**
