@@ -42,6 +42,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.zalith.pcl.game.plugin.ZlPlugin
 import com.zalith.pcl.game.plugin.ZlPluginManager
+import com.zalith.pcl.ui.pcl2.theme.PclUiRenderer
+import com.zalith.pcl.ui.pcl2.theme.PclUiRuntime
 import com.zalith.pcl.ui.pcl2.PclContent
 import com.zalith.pcl.ui.pcl2.PclHintHost
 import com.zalith.pcl.ui.pcl2.components.PclButton
@@ -118,6 +120,15 @@ fun PclPluginPanel() {
         scan(announce = false)
     }
 
+    // 插件列表一变（装 / 启用 / 停用 / 删除）就把界面皮肤同步过去：
+    // 插件的开关就是皮肤开关，不用再点一次「应用」。
+    LaunchedEffect(plugins) {
+        val theme = withContext(Dispatchers.IO) {
+            runCatching { ZlPluginManager.activeTheme(context) }.getOrNull()
+        }
+        PclUiRuntime.apply(theme?.json, theme?.id.orEmpty())
+    }
+
     // 右栏统一用 PclContent：它自带内边距、滚动与「回顶」信号，
     // 自己再套一层 verticalScroll 会变成嵌套滚动，滚动手感很怪。
     PclContent {
@@ -133,7 +144,8 @@ fun PclPluginPanel() {
                 )
                 Spacer(Modifier.height(10.dp))
                 PclText(
-                    text = "不需要手动选文件。把插件 APK 放到下面任意一个位置，进入本页就会自动认出来并装好：\n" +
+                    text = "不需要手动选文件。插件 APK 只要在下面任意一个位置，进入本页就会自动认出来并装好：\n" +
+                            "· 已经装成应用的插件（最常见：点 APK 装完之后，安装包删了也认）\n" +
                             "· 系统「下载」文件夹 —— 下载完直接回来就行\n" +
                             "· 插件根目录 `plugins/`（散装 .apk）\n" +
                             "· 投递目录 `plugins/incoming/` —— 装完会把原件清掉",
@@ -154,9 +166,23 @@ fun PclPluginPanel() {
                         PclText(text = "正在扫描插件 APK…", fontSize = 12, color = p.gray2)
                     }
                 }
+                // 「所有文件访问」没开时，下载文件夹与插件目录都读不到 ——
+                // 那种情况下只有「已安装应用」那一条能用，得让用户知道，别以为功能坏了。
+                if (!hasAllFilesAccess()) {
+                    Spacer(Modifier.height(10.dp))
+                    PclHint(
+                        text = "当前没有「所有文件访问」权限，扫描不到下载文件夹与插件目录；" +
+                                "已经装成应用的插件不受影响，照样能识别。" +
+                                "想用文件夹那一套，请到系统设置里给本应用开启该权限。",
+                        theme = PclHintTheme.Yellow,
+                    )
+                }
                 Spacer(Modifier.height(10.dp))
                 PclHint(
-                    text = "判断标准只有一个：APK 里有没有 `assets/zplugin/plugin.json`。" +
+                    text = "带 `assets/zplugin/ui.json` 的插件是**界面皮肤**：它不覆盖任何文件，" +
+                            "只是把这份参数交给启动器渲染（例如液态玻璃）。同一时间只生效一个皮肤，" +
+                            "同时启用多个时取列表里的第一个。\n" +
+                            "判断标准只有一个：APK 里有没有 `assets/zplugin/plugin.json`。" +
                             "普通应用 APK 和改了后缀的压缩包不会被认成插件，也不会打扰你。" +
                             "启动器只读它 assets 里的文件，不会加载插件 APK 的代码，也不会执行它。" +
                             "安装时如果插件想写入账号数据库、登录令牌这类路径，整包会被拒绝。",
@@ -256,9 +282,19 @@ private fun PluginRow(
                 text = buildString {
                     append(if (plugin.enabled) "已启用" else "已停用")
                     append(" · ")
-                    append(ZlPluginManager.targetLabel(plugin.target))
-                    append(" · ")
-                    append("${plugin.fileCount} 个文件")
+                    if (plugin.isTheme) {
+                        // 皮肤插件：不覆盖文件，只把 ui.json 交给启动器渲染
+                        append("界面皮肤 · ")
+                        append(plugin.ui.ifBlank { "自定义" })
+                        PclUiRuntime.theme?.let { theme ->
+                            append(" · ")
+                            append(if (theme.renderer == PclUiRenderer.Glass) "玻璃" else "纯色")
+                        }
+                    } else {
+                        append(ZlPluginManager.targetLabel(plugin.target))
+                        append(" · ")
+                        append("${plugin.fileCount} 个文件")
+                    }
                     if (plugin.version.isNotBlank()) {
                         append(" · v")
                         append(plugin.version)
@@ -285,6 +321,11 @@ private fun PluginRow(
         }
     }
 }
+
+/** 有没有「所有文件访问」权限（没有就只能靠「已安装应用」这条路识别插件）。 */
+private fun hasAllFilesAccess(): Boolean =
+    android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R ||
+            android.os.Environment.isExternalStorageManager()
 
 /** 细分割线。 */
 @Composable
