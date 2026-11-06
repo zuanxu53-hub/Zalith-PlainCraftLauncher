@@ -410,7 +410,13 @@ fun Modifier.pclSurface(
     // 这样插件可以精确到「按钮玻璃、输入框不动」。
     val wantGlass = roleStyle?.glass ?: theme.glassAllControls
 
-    if (!wantGlass || theme.renderer == PclUiRenderer.Flat) {
+    if (!wantGlass) {
+        // 这个角色不玻璃 → **原样填色**，连透明度都不动。
+        // 之前这里还会套一层 roleAlpha/cardAlpha，结果「关掉玻璃」的列表项其实还是被
+        // 压成半透明，露出底下深色背景 → 看着像深灰块。
+        return this.background(color, shape)
+    }
+    if (theme.renderer == PclUiRenderer.Flat) {
         return this.background(color.copy(alpha = alpha), shape)
     }
 
@@ -472,11 +478,12 @@ fun Modifier.pclSurface(
                 )
             }
         },
-        // 内阴影原来写的是 #2A3A55 @0.55 —— 在浅色背景上就是一圈黑边（截图里 版本选择 那圈）。
-        // 压成极淡的冷灰，只留一点体积感。
-        innerShadow = {
-            InnerShadow(radius = 18.dp, color = Color(0xFF9AA6B4), alpha = 0.14f)
-        },
+        // **不加内阴影**。
+        // 源码 `drawBackdrop` 的 innerShadow 默认就是 null —— 它根本不画。
+        // 而 InnerShadow 做的事是「贴着形状边缘往里糊一圈暗色」，radius 18dp 意味着
+        // 从边缘往里 18dp 都是暗的，在浅色界面上就是一圈灰黑框。
+        // 之前我从 #2A3A55@0.55 压到 #9AA6B4@0.14，那只是把黑框调淡，本质还是在画一个
+        // 源码没有的东西。现在直接去掉。
         shadow = {
             Shadow(
                 radius = 26.dp,
