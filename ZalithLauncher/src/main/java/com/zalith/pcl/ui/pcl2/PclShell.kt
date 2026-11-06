@@ -138,6 +138,7 @@ import com.zalith.pcl.ui.pcl2.theme.PclSurface
 import com.zalith.pcl.ui.pcl2.theme.PclUiRenderer
 import com.zalith.pcl.ui.pcl2.theme.PclUiRuntime
 import com.zalith.pcl.ui.pcl2.theme.pclGlassSupported
+import com.zalith.pcl.ui.pcl2.theme.glassEnabledFor
 import com.zalith.pcl.ui.pcl2.theme.pclSurface
 import com.zalith.pcl.ui.pcl2.theme.sidebarTint
 import com.zalith.pcl.ui.pcl2.theme.PclEase
@@ -889,7 +890,22 @@ private fun PclBody(nav: PclNavController) {
     // 皮肤可以给侧栏换个底色（液态玻璃给的是半透明白）。这里**不做真折射**：
     // 侧栏底是 `drawBehind` 里的一段矩形，宽度还在做 180ms 动画，
     // 套 drawBackdrop 得按动画宽度逐帧重建图层，代价远大于收益。
-    val sidebarColor = LocalPclUiTheme.current.sidebarTint() ?: p.sidebarBackground
+    val uiTheme = LocalPclUiTheme.current
+    val uiBackdrop = LocalPclBackdrop.current
+    val sidebarColor = uiTheme.sidebarTint() ?: p.sidebarBackground
+
+    // 侧栏整块做成**一块大玻璃**（不是每个条目各做一块）。
+    //
+    // 为什么是整块：侧栏条目自己几乎没底色，逐条做玻璃只会取到身后的窗体背景，
+    // 每条都被染成背景色（上一轮侧栏变灰就是这个原因）。整块做才有意义 ——
+    // 它是一整片连续的玻璃，模糊的是它身后的壁纸，条目只是浮在这块玻璃上的内容。
+    //
+    // 条件里要 `uiBackdrop != null`：`drawBackdrop` 必须有录制好的底片，
+    // 没有就老老实实画底色（否则会得到一片透明或纯黑）。
+    val sidebarGlass = uiTheme != null &&
+            uiTheme.renderer == PclUiRenderer.Glass &&
+            uiBackdrop != null &&
+            uiTheme.glassEnabledFor("sidebar")
 
     // 侧栏宽度：PCL 里由「最宽条目」决定（见 pclLeftPanelWidth），
     // 只有启动页写死 300（PageLaunchLeft.xaml:8）、联机页没有侧栏。
@@ -954,14 +970,20 @@ private fun PclBody(nav: PclNavController) {
                         if (homePanelOnRight) {
                             // 面板挪到右边：底色条贴在右侧，阴影落在它的左边
                             val x = size.width - w
-                            drawRect(color = sidebarColor, topLeft = Offset(x, 0f), size = Size(w, size.height))
+                            // 玻璃态下**不画底色**：玻璃自己会画表面色，底下再垫一层白
+                            // 等于把要模糊的东西盖掉了，糊出来还是白。
+                            if (!sidebarGlass) {
+                                drawRect(color = sidebarColor, topLeft = Offset(x, 0f), size = Size(w, size.height))
+                            }
                             drawRect(
                                 brush = leftBarShadow,
                                 topLeft = Offset(x - leftBarShadowWidth, 0f),
                                 size = Size(leftBarShadowWidth, size.height),
                             )
                         } else {
-                            drawRect(color = sidebarColor, size = Size(w, size.height))
+                            if (!sidebarGlass) {
+                                drawRect(color = sidebarColor, size = Size(w, size.height))
+                            }
                             drawRect(
                                 brush = leftBarShadow,
                                 topLeft = Offset(w, 0f),
@@ -976,7 +998,30 @@ private fun PclBody(nav: PclNavController) {
                 val panelFirst = homePanelOnRight.not()
                 if (panelFirst) {
                     // 左栏内容所在列（宽度瞬时，与 PCL 的 `PanMainLeft` 一致）
-                    Box(modifier = Modifier.width(leftWidth).fillMaxHeight()) {
+                    Box(
+                        modifier = Modifier
+                            .width(leftWidth)
+                            .fillMaxHeight()
+                            .then(
+                                if (sidebarGlass) {
+                                    // 形状用圆角 0 的矩形：侧栏是贴边的一整片，
+                                    // 而且 `lens()` 只吃 CornerBasedShape。
+                                    // 大面积玻璃要的就是「一整块」，圆角只在它右侧那条边上可读，
+                                    // 这里保持直角，和 PCL 的 RectLeftBackground 一致。
+                                    Modifier.pclSurface(
+                                        theme = uiTheme,
+                                        backdrop = uiBackdrop,
+                                        shape = androidx.compose.foundation.shape.RoundedCornerShape(0.dp),
+                                        surface = PclSurface.Panel,
+                                        fallbackColor = sidebarColor,
+                                        colorOverride = androidx.compose.ui.graphics.Color.White,
+                                        role = "sidebar",
+                                    )
+                                } else {
+                                    Modifier
+                                }
+                            ),
+                    ) {
                         // MyPageLeft.TriggerShowAnimation：左栏整页重建时才逐个入场，
                         // 因此把左栏内容按 sectionToken 分组；点击左栏条目不会重建它（与 PCL 一致）。
                         key(nav.sectionToken) {
