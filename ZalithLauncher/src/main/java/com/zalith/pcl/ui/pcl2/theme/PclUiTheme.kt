@@ -97,6 +97,14 @@ data class PclGlassParams(
      * 建议 0.06 ~ 0.16；再高就变成磨砂塑料了。
      */
     val haze: Float = 0f,
+    /**
+     * **边缘辉光**（光的散射）倍数，配合 [highlightWidth] 用。
+     *
+     * 镜面边本身是硬的（0.5dp 一条亮线）；真实玻璃的边缘还会把光散出去，
+     * 形成一圈由边缘向内衰减的柔光。`Highlight` 的 `blurRadius` 就是这个：
+     * 值 = 宽度 × 倍数。1 等于不散，2~4 之间最像玻璃，再大就开始糊成雾。
+     */
+    val edgeGlow: Float = 2.5f,
     /** 投影强度（0..1）。 */
     val shadow: Float = 0.10f,
     /** 背景提饱和度，玻璃看起来更透。 */
@@ -195,6 +203,7 @@ private data class GlassJson(
     @SerializedName("highlightAngle") val highlightAngle: Float? = null,
     @SerializedName("highlightWidth") val highlightWidth: Float? = null,
     @SerializedName("haze") val haze: Float? = null,
+    @SerializedName("edgeGlow") val edgeGlow: Float? = null,
 )
 
 /** `ui.json` 的原始结构；字段全部可缺省，缺省即用默认值。 */
@@ -292,6 +301,7 @@ fun parsePclUiTheme(json: String, fallbackId: String = ""): PclUiTheme {
             highlightAngle = raw.glass?.highlightAngle ?: 45f,
             highlightWidth = (raw.glass?.highlightWidth ?: 1.2f).coerceIn(0f, 4f),
             haze = (raw.glass?.haze ?: 0f).coerceIn(0f, 0.5f),
+            edgeGlow = (raw.glass?.edgeGlow ?: 2.5f).coerceIn(1f, 8f),
             highlight = raw.glass?.highlight?.coerceIn(0f, 1f) ?: def.glass.highlight,
             shadow = raw.glass?.shadow?.coerceIn(0f, 1f) ?: def.glass.shadow,
             vibrancy = raw.glass?.vibrancy ?: def.glass.vibrancy,
@@ -486,6 +496,9 @@ fun Modifier.pclSurface(
             if (glass.highlightDirectional) {
                 Highlight(
                     width = glass.highlightWidth.dp,
+                    // 边缘的散射：blurRadius = 宽度 × 倍数。
+                    // 没有它，边缘就是一条硬亮线；有了它，光才「散」得出去。
+                    blurRadius = (glass.highlightWidth * glass.edgeGlow).dp,
                     alpha = a,
                     style = HighlightStyle.Default(angle = glass.highlightAngle),
                 )

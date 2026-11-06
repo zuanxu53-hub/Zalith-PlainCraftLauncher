@@ -665,6 +665,10 @@ private fun PclTitleBar(nav: PclNavController) {
             uiTheme.glass.panel &&
             backdrop != null &&
             uiTheme.glassEnabledFor("panel")
+    // 全透明玻璃：玻璃表面**不叠任何颜色**，只保留模糊、折射与边缘散射。
+    // 所以标题栏的颜色完全来自它身后的壁纸 —— 这也是为什么玻璃态下文字必须换深色：
+    // 壁纸是浅的，白字在上面等于消失。
+    val titleForeground = if (glassTitle) p.color1 else Color.White
 
     Box(
         modifier = Modifier
@@ -683,14 +687,17 @@ private fun PclTitleBar(nav: PclNavController) {
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(0.dp),
                         surface = PclSurface.Panel,
                         fallbackColor = p.titleBarGradient.first(),
-                        colorOverride = p.titleBarGradient.first().copy(alpha = 0.52f),
+                        // 全透明：alpha 0 就不画表面色，玻璃只剩 blur + lens + 边缘散射
+                        colorOverride = Color.Transparent,
                         role = "panel",
                     )
                 } else {
                     Modifier
                 }
             )
-            .background(if (glassTitle) glassBrush else titleBrush),
+            // 玻璃态**不画**渐变底：全透明玻璃的颜色应该来自身后的壁纸，
+            // 再压一层蓝渐变就又把玻璃盖住了（这正是上一版「顶栏不像玻璃」的原因）。
+            .then(if (glassTitle) Modifier else Modifier.background(titleBrush)),
     ) {
         if (sub == null) {
             // PCL 描边 Logo / 自定义文本（`UiLogoType` + `UiLogoText` + `UiLogoLeft`）：
@@ -704,7 +711,7 @@ private fun PclTitleBar(nav: PclNavController) {
                     style = PclTextStyle.base(p).copy(
                         fontSize = 17.sp,
                         lineHeight = PclTextStyle.lineHeight(17),
-                        color = Color.White,
+                        color = titleForeground,
                     ),
                     modifier = Modifier.align(logoAlign).padding(start = PclDimens.titleLogoStart),
                 )
@@ -732,7 +739,7 @@ private fun PclTitleBar(nav: PclNavController) {
                         androidx.compose.material3.Icon(
                             imageVector = PclIcons.titleLogo,
                             contentDescription = null,
-                            tint = Color.White,
+                            tint = titleForeground,
                             modifier = Modifier
                                 .align(logoAlign)
                                 .padding(start = PclDimens.titleLogoStart)
@@ -743,7 +750,7 @@ private fun PclTitleBar(nav: PclNavController) {
                 PclLogoType.Default -> androidx.compose.material3.Icon(
                     imageVector = PclIcons.titleLogo,
                     contentDescription = null,
-                    tint = Color.White,
+                    tint = titleForeground,
                     modifier = Modifier
                         .align(logoAlign)
                         .padding(start = PclDimens.titleLogoStart)
@@ -783,7 +790,7 @@ private fun PclTitleBar(nav: PclNavController) {
             ) {
                 PclIconButton(
                     logo = PclIcons.back,
-                    theme = PclIconTheme.White,
+                    theme = if (glassTitle) PclIconTheme.Black else PclIconTheme.White,
                     size = PclDimens.titleButtonSize,
                     logoScale = 0.87f,
                     contentDescription = "返回",
@@ -792,7 +799,7 @@ private fun PclTitleBar(nav: PclNavController) {
                 Spacer(Modifier.width(PclDimens.titleInnerTitleStart - PclDimens.titleInnerBackStart - PclDimens.titleButtonSize))
                 PclText(
                     text = sub.title,
-                    color = p.color8,
+                    color = if (glassTitle) p.color1 else p.color8,
                     fontSize = 15,
                 )
             }
@@ -803,7 +810,7 @@ private fun PclTitleBar(nav: PclNavController) {
         Row(modifier = Modifier.align(Alignment.CenterEnd), verticalAlignment = Alignment.CenterVertically) {
             PclIconButton(
                 logo = PclIcons.minimize,
-                theme = PclIconTheme.White,
+                theme = if (glassTitle) PclIconTheme.Black else PclIconTheme.White,
                 size = PclDimens.titleButtonSize,
                 logoScale = 0.72f,
                 contentDescription = "最小化",
@@ -812,7 +819,7 @@ private fun PclTitleBar(nav: PclNavController) {
             Spacer(Modifier.width(PclDimens.titleButtonGap))
             PclIconButton(
                 logo = PclIcons.close,
-                theme = PclIconTheme.White,
+                theme = if (glassTitle) PclIconTheme.Black else PclIconTheme.White,
                 size = PclDimens.titleButtonSize,
                 logoScale = 0.72f,
                 contentDescription = "关闭",

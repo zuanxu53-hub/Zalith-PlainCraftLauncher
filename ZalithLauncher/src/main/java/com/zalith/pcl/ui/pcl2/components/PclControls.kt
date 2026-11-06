@@ -1944,28 +1944,71 @@ fun PclSlider(
             )
         }
 
-        // 滑块：白色大胶囊 + 投影 + 一圈镜面高光，和源码里的液态滑块一个语言
+        // ---- 滑块：一块「液态玻璃」----
+        //
+        // 顺序是有讲究的，从外到内：
+        //   ① 外圈散射光（玻璃边缘把光散出去，最外面那层淡淡的青蓝）
+        //   ② 落地阴影（淡蓝灰，稍往下，让它浮着）
+        //   ③ 玻璃本体（竖向渐变 + 半透明，让下面的蓝色轨道透上来 —— 这就是图里
+        //      滑块中间那道蓝的来源，不是另外画的）
+        //   ④ 顶部镜面高光（光从上方来，上半部分更亮）
+        //   ⑤ 1dp 白色描边（真正的那条「镜面边」）
+        //
+        // 之所以不把滑块做成纯白实心：那样它就是个白块，和玻璃没有关系；
+        // 半透明才让它「透」出下面的东西，也就是液态玻璃最核心的特征。
         val scale = dotScaleState.value
         val w = thumbW * scale
         val h = thumbH * scale
+        val r = CornerRadius(h / 2f, h / 2f)
+
+        // ① 外圈散射：比本体大 6dp，用很低的 alpha —— 这就是「边缘的光的散射」
+        val glow = 3.dp.toPx()
         drawRoundRect(
-            color = Color.Black.copy(alpha = 0.10f),
-            topLeft = Offset(thumbX - w / 2f, cy - h / 2f + 1.5.dp.toPx()),
-            size = Size(w, h),
-            cornerRadius = CornerRadius(h / 2f, h / 2f),
+            color = Color(0x3379B8E8),
+            topLeft = Offset(thumbX - w / 2f - glow, cy - h / 2f - glow),
+            size = Size(w + glow * 2, h + glow * 2),
+            cornerRadius = CornerRadius((h + glow * 2) / 2f, (h + glow * 2) / 2f),
         )
+        // ② 落地阴影
         drawRoundRect(
-            color = Color.White,
+            color = Color(0x1F2A3A55),
+            topLeft = Offset(thumbX - w / 2f, cy - h / 2f + 2.dp.toPx()),
+            size = Size(w, h),
+            cornerRadius = r,
+        )
+        // ③ 玻璃本体：竖向渐变，上亮下略青，整体半透明
+        drawRoundRect(
+            brush = Brush.verticalGradient(
+                colorStops = arrayOf(
+                    0f to Color(0xE6FFFFFF),
+                    0.42f to Color(0xB3F2F8FF),
+                    1f to Color(0xCCDCEBFA),
+                ),
+                startY = cy - h / 2f,
+                endY = cy + h / 2f,
+            ),
             topLeft = Offset(thumbX - w / 2f, cy - h / 2f),
             size = Size(w, h),
-            cornerRadius = CornerRadius(h / 2f, h / 2f),
+            cornerRadius = r,
         )
+        // ④ 顶部镜面高光：只占上面三分之一，弧形高光让滑块有厚度
         drawRoundRect(
-            color = Color.White.copy(alpha = 0.9f),
+            brush = Brush.verticalGradient(
+                listOf(Color(0xCCFFFFFF), Color(0x00FFFFFF)),
+                startY = cy - h / 2f,
+                endY = cy - h / 2f + h * 0.45f,
+            ),
+            topLeft = Offset(thumbX - w / 2f + 1.dp.toPx(), cy - h / 2f + 1.dp.toPx()),
+            size = Size(w - 2.dp.toPx(), h * 0.45f),
+            cornerRadius = CornerRadius(h * 0.22f, h * 0.22f),
+        )
+        // ⑤ 镜面边：1dp 白线，边缘散射就是靠它 + ① 一起形成的
+        drawRoundRect(
+            color = Color.White.copy(alpha = 0.95f),
             topLeft = Offset(thumbX - w / 2f, cy - h / 2f),
             size = Size(w, h),
-            cornerRadius = CornerRadius(h / 2f, h / 2f),
-            style = Stroke(width = 0.6.dp.toPx()),
+            cornerRadius = r,
+            style = Stroke(width = 1.dp.toPx()),
         )
     }
 }
