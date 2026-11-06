@@ -44,6 +44,9 @@ const val TARGET_LAUNCHER = "launcher"
 /** 皮肤 APK 里放参数的条目名；安装时另存为插件目录下的 `ui.json`。 */
 private const val UI_SPEC_ENTRY = ASSET_ROOT + "ui.json"
 
+/** 插件自定义页面的条目名；安装时另存为插件目录下的 `pages.json`。 */
+private const val PAGES_SPEC_ENTRY = ASSET_ROOT + "pages.json"
+
 /** 插件投递目录名（`<插件根>/incoming`）：APK 丢进来，装完自动清掉。 */
 private const val INCOMING_DIR = "incoming"
 
@@ -102,6 +105,8 @@ data class ZlPlugin(
     val ui: String = "",
     /** 插件目录下有没有 `ui.json`。 */
     val hasUiSpec: Boolean = false,
+    /** 插件目录下有没有 `pages.json`（这个插件想往启动器里加页面）。 */
+    val hasPagesSpec: Boolean = false,
 ) {
     /** 是否界面皮肤插件。 */
     val isTheme: Boolean get() = ui.isNotBlank() || hasUiSpec
@@ -153,6 +158,13 @@ private data class ScanRecord(
 )
 
 /** 插件提供的界面皮肤：id + 名字 + `ui.json` 原文。 */
+/** 插件给的页面清单原文（`pages.json`）。 */
+data class ZlPluginPages(
+    val pluginId: String,
+    val pluginName: String,
+    val json: String,
+)
+
 data class ZlPluginTheme(
     val id: String,
     val name: String,
@@ -213,6 +225,23 @@ object ZlPluginManager {
             // 只写了 plugin.json 里的 ui、没带 ui.json 时，给一份空参数 —— 界面用默认值
             json = json?.ifBlank { null } ?: "{}",
         )
+    }
+
+    /**
+     * 当前启用的插件声明的自定义页面（原文）。
+     *
+     * 和 [activeTheme] 一样，这里只负责**把文件读出来**，怎么解释交给界面层
+     * （`data/PclPluginPages.kt`）—— 启动器不必为了加一种积木而改这里。
+     */
+    fun activePages(context: Context): List<ZlPluginPages> {
+        return list(context)
+            .filter { it.enabled && it.hasPagesSpec }
+            .mapNotNull { plugin ->
+                val spec = File(plugin.dir, "pages.json")
+                val json = runCatching { if (spec.isFile) spec.readText() else null }.getOrNull()
+                json?.takeIf { it.isNotBlank() }
+                    ?.let { ZlPluginPages(plugin.id, plugin.name, it) }
+            }
     }
 
     /** 列出已安装插件（按名字排序）。 */
@@ -512,6 +541,13 @@ object ZlPluginManager {
                     }
                 }.onFailure { Logger.warning(TAG, "保存 ui.json 失败", it) }
             }
+            findEntry(zip, PAGES_SPEC_ENTRY)?.let { specEntry ->
+                runCatching {
+                    zip.getInputStream(specEntry).bufferedReader().use { reader ->
+                        File(dir, "pages.json").writeText(reader.readText())
+                    }
+                }.onFailure { Logger.warning(TAG, "保存 pages.json 失败", it) }
+            }
             writeMeta(dir, meta)
             installedMeta = meta
             installedDir = dir
@@ -533,6 +569,7 @@ object ZlPluginManager {
             dir = dir,
             ui = meta.ui,
             hasUiSpec = File(dir, "ui.json").isFile,
+            hasPagesSpec = File(dir, "pages.json").isFile,
         )
 
         // ⑤ 默认启用：与「资源包放进去就生效」一致；启用失败不影响安装本身
@@ -574,6 +611,7 @@ object ZlPluginManager {
             dir = dir,
             ui = meta.ui,
             hasUiSpec = File(dir, "ui.json").isFile,
+            hasPagesSpec = File(dir, "pages.json").isFile,
         )
     }
 

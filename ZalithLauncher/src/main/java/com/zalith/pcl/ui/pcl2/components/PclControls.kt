@@ -102,7 +102,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -131,6 +133,7 @@ import com.zalith.pcl.ui.pcl2.theme.PclEase
 import com.zalith.pcl.ui.pcl2.theme.PclMotion
 import com.zalith.pcl.ui.pcl2.theme.PclTextStyle
 import com.zalith.pcl.ui.pcl2.theme.LocalPclBackdrop
+import com.zalith.pcl.ui.pcl2.theme.LocalPclScreenOffset
 import com.zalith.pcl.ui.pcl2.theme.LocalPclUiTheme
 import com.zalith.pcl.ui.pcl2.theme.PclSurface
 import com.zalith.pcl.ui.pcl2.theme.cornerOr
@@ -146,6 +149,7 @@ import com.zalith.pcl.ui.pcl2.glass.PclLiquidButtonSurface
 import com.zalith.pcl.ui.pcl2.glass.LiquidSlider
 import com.zalith.pcl.ui.pcl2.glass.LiquidToggle
 import com.zalith.pcl.ui.pcl2.theme.PclUiRenderer
+import com.zalith.pcl.ui.pcl2.theme.PclUiRuntime
 import com.zalith.pcl.ui.pcl2.theme.pclPalette
 import com.zalith.pcl.ui.pcl2.theme.pclHairline
 import kotlinx.coroutines.coroutineScope
@@ -395,14 +399,47 @@ fun PclButton(
         return
     }
 
+    // 低版本走「软玻璃」：液态按钮组件需要真 `Backdrop`（系统模糊），这里给不了，
+    // 但软玻璃不需要它 —— 有条件就该让按钮也透出背景，而不是留一个白色方框。
+    val softGlassShape = RoundedCornerShape(uiTheme.buttonCornerOr(PclDimens.buttonCorner))
+    val softButton = uiTheme != null &&
+            uiTheme.renderer == PclUiRenderer.Glass &&
+            uiTheme.glassEnabledFor("button") &&
+            PclUiRuntime.soft != null
+
     Row(
         // `MyButton` 的按下缩放套在最外层（对应 PCL 的 PanFore RenderTransform）
         modifier = modifier
             .pclPressScale(pressed)
             .heightIn(min = height)
-            .clip(RoundedCornerShape(PclDimens.buttonCorner))
-            .background(backgroundColor)
-            .border(pclHairline(), borderColor, RoundedCornerShape(PclDimens.buttonCorner))
+            .clip(softGlassShape)
+            .then(
+                // 低版本（没有 RenderEffect）：液态按钮组件拿不到 `Backdrop`，
+                // 但软玻璃不需要它 —— 直接按角色画一块玻璃，按钮才有圆角与透视。
+                // 不这么做的话这里会退回 PCL 的「半透明白 + 深色描边」，就是用户看到的那个方框。
+                if (softButton) {
+                    Modifier.pclSurface(
+                        theme = uiTheme,
+                        backdrop = null,
+                        shape = softGlassShape,
+                        surface = PclSurface.Control,
+                        fallbackColor = backgroundColor,
+                        colorOverride = Color.White,
+                        role = "button",
+                    )
+                } else {
+                    Modifier.background(backgroundColor)
+                }
+            )
+            .then(
+                if (softButton || (uiTheme != null && uiTheme.renderer == PclUiRenderer.Glass &&
+                        uiTheme.glassEnabledFor("button"))
+                ) {
+                    Modifier
+                } else {
+                    Modifier.border(pclHairline(), borderColor, softGlassShape)
+                }
+            )
             .clickable(enabled = enabled, interactionSource = interaction, indication = null, onClick = onClick)
             .padding(contentPadding),
         verticalAlignment = Alignment.CenterVertically,
@@ -632,13 +669,15 @@ fun PclPillButton(
     val glassPill = uiTheme != null &&
             uiTheme.renderer == PclUiRenderer.Glass &&
             uiTheme.glassEnabledFor("pill") &&
-            uiBackdrop != null
+            (uiBackdrop != null || PclUiRuntime.soft != null)
+    // 胶囊压在玻璃顶栏上：不透明度要「看得出选中」但不能白成一块贴纸。
+    // 原来是 0.94 / 0.55，选中的那颗在玻璃上就是一个实心白块。
     val pillSurface = if (glassPill) {
         when {
-            !enabled -> Color.White.copy(alpha = 0.22f)
-            checked -> Color.White.copy(alpha = 0.94f)
-            active -> Color.White.copy(alpha = 0.72f)
-            else -> Color.White.copy(alpha = 0.55f)
+            !enabled -> Color.White.copy(alpha = 0.18f)
+            checked -> Color.White.copy(alpha = 0.74f)
+            active -> Color.White.copy(alpha = 0.58f)
+            else -> Color.White.copy(alpha = 0.34f)
         }
     } else {
         background
@@ -2382,35 +2421,64 @@ internal fun PclComboBoxPopup(
         //   · 行高与字号也按别处的密度走，「界面缩放」对弹层形同虚设。
         // 把调用点的 density 带进去，弹层的每一个 dp 都和触发器、和整页 UI 同尺。
         CompositionLocalProvider(LocalDensity provides density) {
-            // 弹层也是独立 Window：拿不到主窗口的底片，用拟态玻璃
-            // （半透明白 + 0.5dp 方向性镜面边 + 投影）。装了皮肤就不再画 PCL 的 1dp 描边。
+            // 弹层是独立 Window：`drawBackdrop` 的底片对不上，但软玻璃能用 ——
+            // 它吃的是整屏背景小图，补上「本窗口原点在屏幕上的位置」就能对齐。
+            // 之前这里写死 `fillAlpha = 0.90`，等于一块不透明白板，和周围的玻璃完全脱节。
             val popupTheme = LocalPclUiTheme.current
-            Box(
-                modifier = Modifier
-                    .width(anchorWidth)
-                    .then(
-                        if (popupTheme?.renderer == PclUiRenderer.Glass) {
-                            Modifier.pclFauxGlass(
-                                theme = popupTheme,
-                                shape = RoundedCornerShape(10.dp),
-                                fillColor = Color.White,
-                                fillAlpha = 0.90f,
-                                shadowRadius = 14.dp,
-                            )
-                        } else {
-                            Modifier
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(Color.White)
-                                .border(pclHairline(), borderColor, RoundedCornerShape(3.dp))
-                        }
-                    ),
-            ) {
-                Column(
+            val popupView = LocalView.current
+            var popupOffset by remember { mutableStateOf(Offset.Zero) }
+            // 位置必须在窗口真正布局完之后才量得准：第一次组合时弹层还没上屏。
+            // 这里用 post 量一次 —— 不能用 `onGloballyPositioned` 写在下面这个 Box 上：
+            // Box 的修饰符在组合期就要求值，那时 offset 还是旧的，采到的背景必然错位。
+            LaunchedEffect(popupView) {
+                popupView.post {
+                    val loc = IntArray(2)
+                    popupView.getLocationOnScreen(loc)
+                    val next = Offset(loc[0].toFloat(), loc[1].toFloat())
+                    if (next != popupOffset) popupOffset = next
+                }
+            }
+            CompositionLocalProvider(LocalPclScreenOffset provides popupOffset) {
+                Box(
                     modifier = Modifier
-                        .heightIn(max = 320.dp)
-                        .verticalScroll(rememberScrollState()),
-                    content = content,
-                )
+                        .width(anchorWidth)
+                        .then(
+                            if (popupTheme?.renderer == PclUiRenderer.Glass) {
+                                if (PclUiRuntime.soft != null) {
+                                    Modifier.pclSurface(
+                                        theme = popupTheme,
+                                        backdrop = null,
+                                        shape = RoundedCornerShape(10.dp),
+                                        surface = PclSurface.Control,
+                                        fallbackColor = Color.White,
+                                        // 弹层比弹窗更小，可以再透一点；0.62 仍然保证文字压得住
+                                        colorOverride = Color.White.copy(alpha = 0.62f),
+                                        role = "dialog",
+                                    )
+                                } else {
+                                    Modifier.pclFauxGlass(
+                                        theme = popupTheme,
+                                        shape = RoundedCornerShape(10.dp),
+                                        fillColor = Color.White,
+                                        fillAlpha = 0.78f,
+                                        shadowRadius = 14.dp,
+                                    )
+                                }
+                            } else {
+                                Modifier
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(Color.White)
+                                    .border(pclHairline(), borderColor, RoundedCornerShape(3.dp))
+                            }
+                        ),
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .heightIn(max = 320.dp)
+                            .verticalScroll(rememberScrollState()),
+                        content = content,
+                    )
+                }
             }
         }
     }

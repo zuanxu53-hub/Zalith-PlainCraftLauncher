@@ -45,6 +45,7 @@ import com.zalith.pcl.game.plugin.ZlPluginManager
 import com.zalith.pcl.ui.pcl2.theme.PclUiRenderer
 import com.zalith.pcl.ui.pcl2.theme.PclUiRuntime
 import com.zalith.pcl.ui.pcl2.theme.pclGlassDiagnostics
+import com.zalith.pcl.ui.pcl2.LocalPclNav
 import com.zalith.pcl.ui.pcl2.PclContent
 import com.zalith.pcl.ui.pcl2.PclHintHost
 import com.zalith.pcl.ui.pcl2.components.PclButton
@@ -53,6 +54,8 @@ import com.zalith.pcl.ui.pcl2.components.PclColorState
 import com.zalith.pcl.ui.pcl2.components.PclConfirmDialog
 import com.zalith.pcl.ui.pcl2.components.PclHint
 import com.zalith.pcl.ui.pcl2.components.PclHintTheme
+import com.zalith.pcl.ui.pcl2.components.PclListItem
+import com.zalith.pcl.ui.pcl2.data.parsePclPluginPages
 import com.zalith.pcl.ui.pcl2.components.PclText
 import com.zalith.pcl.ui.pcl2.theme.PclDimens
 import com.zalith.pcl.ui.pcl2.theme.pclPalette
@@ -71,13 +74,20 @@ fun PclPluginPanel() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val p = pclPalette
+    val nav = LocalPclNav.current
 
     var plugins by remember { mutableStateOf<List<ZlPlugin>>(emptyList()) }
+    // 插件声明的自定义页面放在全局（PclUiRuntime.pages），
+    // 因为「布局槽位」在渲染版块时也要按 id 找它们。
+    val pages = PclUiRuntime.pages
     var scanning by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<ZlPlugin?>(null) }
 
     fun reload() {
         plugins = runCatching { ZlPluginManager.list(context) }.getOrDefault(emptyList())
+        PclUiRuntime.pages = runCatching {
+            ZlPluginManager.activePages(context).flatMap { parsePclPluginPages(it.json) }
+        }.getOrDefault(emptyList())
     }
 
     // 自动识别：进页面就扫一遍「下载」文件夹、插件根目录和投递目录，
@@ -133,6 +143,20 @@ fun PclPluginPanel() {
     // 右栏统一用 PclContent：它自带内边距、滚动与「回顶」信号，
     // 自己再套一层 verticalScroll 会变成嵌套滚动，滚动手感很怪。
     PclContent {
+        // 插件加的页面放在最上面：用户装插件多半就是冲这一页来的。
+        if (pages.isNotEmpty()) {
+            PclCard(modifier = Modifier.fillMaxWidth(), title = "插件页面（${pages.size}）") {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    pages.forEach { spec ->
+                        PclListItem(
+                            title = spec.title,
+                            onClick = { nav.push(pclPluginSubPage(spec)) },
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+        }
         PclCard(modifier = Modifier.fillMaxWidth(), title = "自动识别") {
             Column {
                 PclText(

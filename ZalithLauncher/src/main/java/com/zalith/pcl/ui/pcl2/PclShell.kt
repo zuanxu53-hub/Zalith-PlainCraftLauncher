@@ -22,6 +22,12 @@
 
 package com.zalith.pcl.ui.pcl2
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.LinearGradient
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.Shader
 import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
@@ -86,9 +92,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
@@ -135,7 +144,12 @@ import com.zalith.pcl.ui.pcl2.theme.LocalPclBackdrop
 import com.zalith.pcl.ui.pcl2.theme.LocalPclUiTheme
 import com.zalith.pcl.ui.pcl2.theme.PclDimens
 import com.zalith.pcl.ui.pcl2.theme.PclSurface
+import com.zalith.pcl.ui.pcl2.theme.PclSoftBackdrop
 import com.zalith.pcl.ui.pcl2.theme.PclUiRenderer
+import com.zalith.pcl.ui.pcl2.theme.PclSlotOverride
+import com.zalith.pcl.ui.pcl2.theme.PclUiTheme
+import com.zalith.pcl.ui.pcl2.data.parsePclPluginPages
+import com.zalith.pcl.ui.pcl2.pages.PclPluginPageInline
 import com.zalith.pcl.ui.pcl2.theme.PclUiRuntime
 import com.zalith.pcl.ui.pcl2.theme.pclGlassSupported
 import com.zalith.pcl.ui.pcl2.theme.glassEnabledFor
@@ -152,6 +166,23 @@ import com.zalith.pcl.ui.pcl2.theme.pclPalette
 /* ============================================================================
  *  顶部导航的 5 个版块
  * ==========================================================================*/
+
+/**
+ * 这一版块在 `ui.json` 的 `layout` 里叫什么。
+ *
+ * 用英文短名而不是枚举名，是为了让插件写配置时一眼能看懂，也不受以后改名影响。
+ */
+private fun PclSection.slotName(): String = when (this) {
+    PclSection.Home -> "home"
+    PclSection.Download -> "download"
+    PclSection.Link -> "link"
+    PclSection.Setup -> "setup"
+    PclSection.Other -> "other"
+}
+
+/** 当前皮肤有没有接管这一版块的某个位置。 */
+private fun PclSection.slotOverride(): PclSlotOverride? =
+    PclUiRuntime.theme?.layout?.get(slotName())
 
 /** PCL2 顶部导航的 5 个版块（对应 `BtnTitleSelect0..4`）。 */
 enum class PclSection(val label: String, val icon: ImageVector, val hiddenKey: String) {
@@ -348,6 +379,13 @@ fun PclMainScreen(
             runCatching { ZlPluginManager.activeTheme(context) }.getOrNull()
         }
         PclUiRuntime.apply(themeJson?.json, themeJson?.id.orEmpty())
+        // 插件声明的页面：布局槽位（ui.json 的 layout）要按 id 找它们，
+        // 而渲染版块的地方拿不到插件目录，所以在这里读一次、存进全局。
+        PclUiRuntime.pages = withContext(Dispatchers.IO) {
+            runCatching {
+                ZlPluginManager.activePages(context).flatMap { parsePclPluginPages(it.json) }
+            }.getOrDefault(emptyList())
+        }
         PclLoginSettings.load(context)
         // 背景图片 / 背景音乐 / 标题图片 / 自定义主页（PageSetupUI 的另外几张卡）
         PclAppearance.load(context)
@@ -442,6 +480,10 @@ private fun PclMainContent(
     // 只有玻璃渲染器才需要「背景底片」：录制会多一层全屏图层，flat 皮肤用不上就别付这个钱。
     val useBackdrop = uiTheme?.renderer == PclUiRenderer.Glass && pclGlassSupported
     val uiBackdrop = rememberLayerBackdrop()
+    // 低版本（没有 RenderEffect）拿不到系统模糊：玻璃得从一张「预模糊的背景图」里取样。
+    // 这张图跟着窗口尺寸与壁纸走，所以先量窗口，尺寸/壁纸一变就重建。
+    var windowSize by remember { mutableStateOf(IntSize.Zero) }
+    PclSoftBackdropHost(theme = uiTheme, size = windowSize, opacityPercent = backgroundOpacity)
 
     CompositionLocalProvider(
         LocalPclNav provides nav,
@@ -470,6 +512,7 @@ private fun PclMainContent(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .onSizeChanged { windowSize = it }
                 .then(prankModifier)
                 .clip(androidx.compose.foundation.shape.RoundedCornerShape(PclDimens.formCorner))
         ) {
@@ -640,6 +683,105 @@ private fun PclMainContent(
 }
 
 /* ============================================================================
+ *  低版本的「模糊背景底片」
+ * ==========================================================================*/
+
+/**
+ * 维护 [PclUiRuntime.soft]：给没有 `RenderEffect` 的机器准备一张缩小过的背景图。
+ *
+ * 为什么是「按 1/6 重画一遍」而不是直接模糊壁纸：
+ *   玻璃身后看到的不只是壁纸，还有窗体底色、窗体渐变、以及玻璃态自带的
+ *   渐变 + 三块光斑。这几层叠起来才是「身后真实的颜色」。
+ *   在 1/6 的画布上把这些重画一遍，缩小本身就完成了低通滤波；
+ *   玻璃块再用 `BitmapShader` 放大取样，看上去就是一块被糊掉的背景。
+ *
+ * 成本：一张 180×85 的位图，几十毫秒，只在壁纸 / 尺寸 / 不透明度变化时重算。
+ */
+@Composable
+private fun PclSoftBackdropHost(
+    theme: PclUiTheme?,
+    size: IntSize,
+    opacityPercent: Int,
+) {
+    val glass = theme?.renderer == PclUiRenderer.Glass
+    val wallpaper = PclAppearance.backgroundImage
+    val hasVideo = PclAppearance.hasBackgroundVideo
+    val colorful = PclSkinSettings.colorfulBackground
+
+    if (!glass || size.width <= 0 || size.height <= 0) {
+        LaunchedEffect(glass) { PclUiRuntime.soft = null }
+        return
+    }
+    LaunchedEffect(theme?.id, size, wallpaper, hasVideo, colorful, opacityPercent) {
+        val bmp = withContext(Dispatchers.Default) {
+            buildSoftBackdrop(size, wallpaper, hasVideo, colorful, opacityPercent)
+        }
+        PclUiRuntime.soft = bmp?.let { PclSoftBackdrop(it, size) }
+    }
+}
+
+/**
+ * 把「背景层」按 1/6 分辨率重画一遍。
+ *
+ * 顺序必须和 `PclShell` 里的真实背景层一致：底色 → 窗体渐变 → 玻璃态壁纸 → 用户壁纸。
+ * 顺序错了，玻璃里透出来的颜色就会和外面差一截。
+ */
+private fun buildSoftBackdrop(
+    size: IntSize,
+    wallpaperPath: String?,
+    hasVideo: Boolean,
+    colorful: Boolean,
+    opacityPercent: Int,
+): ImageBitmap? = runCatching {
+    val div = 6
+    val w = (size.width / div).coerceIn(24, 640)
+    val h = (size.height / div).coerceIn(24, 640)
+    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bmp)
+    val wf = w.toFloat()
+    val hf = h.toFloat()
+
+    // ① 窗体底色（`UiBackgroundColorful` 关掉时是纯色 #F5F5F5）
+    if (!colorful) canvas.drawColor(0xFFF5F5F5.toInt())
+
+    // ② 玻璃态自带的「默认壁纸」：浅冷色渐变 + 三块光斑
+    val base = LinearGradient(
+        0f, 0f, wf * 0.35f, hf,
+        intArrayOf(0xFFFBFDFF.toInt(), 0xFFEEF4FB.toInt(), 0xFFE2EBF7.toInt()),
+        floatArrayOf(0f, 0.42f, 1f),
+        Shader.TileMode.CLAMP,
+    )
+    canvas.drawRect(0f, 0f, wf, hf, Paint().apply { shader = base })
+    val minDim = minOf(wf, hf)
+    canvas.drawCircle(wf * 0.12f, hf * 0.08f, minDim * 0.62f, Paint().apply { color = 0xF2FFFFFF.toInt() })
+    canvas.drawCircle(wf * 0.92f, hf * 0.46f, minDim * 0.52f, Paint().apply { color = 0x4D7FA8CE })
+    canvas.drawCircle(wf * 0.22f, hf * 0.86f, minDim * 0.40f, Paint().apply { color = 0x3DA8CEDD })
+
+    // ③ 用户壁纸：按「适应」等比铺满再居中裁切（和 `PclBackgroundSuit.Auto` 的观感一致）
+    if (!hasVideo && !wallpaperPath.isNullOrBlank()) {
+        val src = PclImageLoader.load(wallpaperPath, 512)?.asAndroidBitmap()
+        if (src != null) {
+            val s = maxOf(wf / src.width, hf / src.height)
+            val dw = src.width * s
+            val dh = src.height * s
+            val left = (wf - dw) / 2f
+            val top = (hf - dh) / 2f
+            val alpha = (opacityPercent / 100f).coerceIn(0.05f, 1f)
+            canvas.drawBitmap(
+                src,
+                null,
+                RectF(left, top, left + dw, top + dh),
+                Paint().apply {
+                    isFilterBitmap = true
+                    this.alpha = (alpha * 255).toInt()
+                },
+            )
+        }
+    }
+    bmp.asImageBitmap()
+}.getOrNull()
+
+/* ============================================================================
  *  标题栏
  * ==========================================================================*/
 
@@ -660,10 +802,12 @@ private fun PclTitleBar(nav: PclNavController) {
     val glassBrush = remember(p.titleBarGradient) {
         Brush.horizontalGradient(p.titleBarGradient.map { it.copy(alpha = 0.42f) })
     }
+    // 低版本没有 `LocalPclBackdrop`（系统给不了模糊），但只要软底片在，
+    // 顶栏照样能做玻璃 —— 这里不能只认 backdrop，否则低版本永远是那条蓝色实心条。
     val glassTitle = uiTheme != null &&
             uiTheme.renderer == PclUiRenderer.Glass &&
             uiTheme.glass.panel &&
-            backdrop != null &&
+            (backdrop != null || PclUiRuntime.soft != null) &&
             uiTheme.glassEnabledFor("panel")
     // 全透明玻璃：玻璃表面**不叠任何颜色**，只保留模糊、折射与边缘散射。
     // 所以标题栏的颜色完全来自它身后的壁纸 —— 这也是为什么玻璃态下文字必须换深色：
@@ -918,11 +1062,12 @@ private fun PclBody(nav: PclNavController) {
     // 每条都被染成背景色（上一轮侧栏变灰就是这个原因）。整块做才有意义 ——
     // 它是一整片连续的玻璃，模糊的是它身后的壁纸，条目只是浮在这块玻璃上的内容。
     //
-    // 条件里要 `uiBackdrop != null`：`drawBackdrop` 必须有录制好的底片，
-    // 没有就老老实实画底色（否则会得到一片透明或纯黑）。
+    // 条件里要「有底片」：`drawBackdrop` 必须有录制好的图层，
+    // 低版本没有那个图层，但有预模糊的背景小图（`PclUiRuntime.soft`）——
+    // 只要其中一个在，侧栏就该是一整块玻璃，而不是一条实心色带。
     val sidebarGlass = uiTheme != null &&
             uiTheme.renderer == PclUiRenderer.Glass &&
-            uiBackdrop != null &&
+            (uiBackdrop != null || PclUiRuntime.soft != null) &&
             uiTheme.glassEnabledFor("sidebar")
 
     // 侧栏宽度：PCL 里由「最宽条目」决定（见 pclLeftPanelWidth），
@@ -1045,6 +1190,9 @@ private fun PclBody(nav: PclNavController) {
                         key(nav.sectionToken) {
                             if (sub != null) {
                                 sub.leftContent?.invoke()
+                            } else if (PclUiRuntime.pageById(nav.section.slotOverride()?.left) != null) {
+                                // 插件把这一版块的左栏接管了
+                                PclPluginPageInline(PclUiRuntime.pageById(nav.section.slotOverride()!!.left)!!)
                             } else {
                                 when (nav.section) {
                                     PclSection.Home -> PclHomeLeft(nav)
@@ -1061,6 +1209,9 @@ private fun PclBody(nav: PclNavController) {
                     Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
                         if (sub != null) {
                             sub.content()
+                        } else if (PclUiRuntime.pageById(nav.section.slotOverride()?.content) != null) {
+                            // 插件把这一版块的内容区接管了
+                            PclPluginPageInline(PclUiRuntime.pageById(nav.section.slotOverride()!!.content)!!)
                         } else {
                             when (nav.section) {
                                 PclSection.Home -> PclHomeRight(nav)
@@ -1072,11 +1223,17 @@ private fun PclBody(nav: PclNavController) {
                         }
                     }
                 } else {
+                    // 启动面板挪到右边：内容与左栏交换位置，槽位覆盖照样生效
+                    val homeSlot = PclSection.Home.slotOverride()
                     Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                        PclHomeRight(nav)
+                        PclUiRuntime.pageById(homeSlot?.content)?.let { PclPluginPageInline(it) }
+                            ?: PclHomeRight(nav)
                     }
                     Box(modifier = Modifier.width(leftWidth).fillMaxHeight()) {
-                        key(nav.sectionToken) { PclHomeLeft(nav) }
+                        key(nav.sectionToken) {
+                            PclUiRuntime.pageById(homeSlot?.left)?.let { PclPluginPageInline(it) }
+                                ?: PclHomeLeft(nav)
+                        }
                     }
                 }
             }

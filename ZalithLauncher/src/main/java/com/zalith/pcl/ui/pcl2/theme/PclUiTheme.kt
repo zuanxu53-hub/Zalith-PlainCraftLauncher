@@ -55,6 +55,7 @@ import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.highlight.HighlightStyle
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
+import com.zalith.pcl.ui.pcl2.data.PclPluginPageSpec
 
 /** 渲染器：决定“表面”怎么画。 */
 enum class PclUiRenderer {
@@ -140,6 +141,23 @@ data class PclRoleStyle(
 )
 
 /**
+ * 一个「布局槽位」的覆盖：把这个位置内置的内容换成插件声明的页面。
+ *
+ * 槽位名是「版块 + 位置」：`home` / `download` / `link` / `setup` / `other`，
+ * 每个版块有 `left`（左栏）与 `content`（右侧内容区）两个位置。
+ *
+ * 只覆盖**内容**，不动骨架：顶栏、侧栏宽度、二级页导航都还是启动器管，
+ * 所以插件写坏一页最多是「这一版块变空」，不会让整个界面不可用 ——
+ * 停用插件就能恢复。
+ */
+data class PclSlotOverride(
+    /** 左栏换成哪个插件页面（`pages.json` 的 id）。 */
+    val left: String? = null,
+    /** 右侧内容区换成哪个插件页面。 */
+    val content: String? = null,
+)
+
+/**
  * 一套皮肤。
  *
  * 全部有默认值：插件只写 `{"renderer":"glass"}` 也能用 —— 默认就是液态玻璃的手感。
@@ -165,6 +183,13 @@ data class PclUiTheme(
     val glass: PclGlassParams = PclGlassParams(),
     /** 角色级覆盖（见 [PclRoleStyle]）。 */
     val roles: Map<String, PclRoleStyle> = emptyMap(),
+    /**
+     * 布局槽位覆盖（`ui.json` 的 `layout` 段）。
+     *
+     * key 是版块名，value 指定该版块的左栏 / 内容区用哪个插件页面。
+     * 空表 = 全用启动器内置页面。
+     */
+    val layout: Map<String, PclSlotOverride> = emptyMap(),
     /** 描边策略，默认 `none`（玻璃态不该有硬边）。 */
     val border: PclBorderStyle = PclBorderStyle(),
     /** true = 玻璃态下把色板换成中性灰阶（白色主题）。 */
@@ -220,6 +245,11 @@ private data class BorderJson(
     @SerializedName("alpha") val alpha: Float? = null,
 )
 
+private data class LayoutSlotJson(
+    @SerializedName("left") val left: String? = null,
+    @SerializedName("content") val content: String? = null,
+)
+
 private data class SliderJson(
     @SerializedName("liquid") val liquid: Boolean? = null,
 )
@@ -238,6 +268,7 @@ private data class ThemeJson(
     @SerializedName("buttonCorner") val buttonCorner: Float? = null,
     @SerializedName("glass") val glass: GlassJson? = null,
     @SerializedName("roles") val roles: Map<String, RoleJson>? = null,
+    @SerializedName("layout") val layout: Map<String, LayoutSlotJson>? = null,
     @SerializedName("border") val border: BorderJson? = null,
     @SerializedName("palette") val palette: String? = null,
     @SerializedName("slider") val slider: SliderJson? = null,
@@ -279,6 +310,14 @@ fun parsePclUiTheme(json: String, fallbackId: String = ""): PclUiTheme {
                 corner = value.corner?.takeIf { it >= 0f },
             )
             key.trim().lowercase().ifBlank { null }?.let { it to style }
+        }?.toMap().orEmpty(),
+        layout = raw.layout?.mapNotNull { (key, value) ->
+            val slot = key.trim().lowercase().ifBlank { null } ?: return@mapNotNull null
+            val override = PclSlotOverride(
+                left = value.left?.trim()?.ifBlank { null },
+                content = value.content?.trim()?.ifBlank { null },
+            )
+            if (override.left == null && override.content == null) null else slot to override
         }?.toMap().orEmpty(),
         border = PclBorderStyle(
             mode = when (raw.border?.mode?.trim()?.lowercase()) {
@@ -335,6 +374,18 @@ val LocalPclUiTheme = staticCompositionLocalOf<PclUiTheme?> { null }
  */
 val LocalPclBackdrop = staticCompositionLocalOf<Backdrop?> { null }
 
+/**
+ * 当前 composition 的内容原点在**屏幕**上的位置。
+ *
+ * 主窗口是全屏的，原点就是 (0,0)，用不上这个。
+ * 但弹窗（`Dialog`）是一个**尺寸包裹内容、居中显示**的独立窗口：
+ * 它的 `positionInRoot` 从自己窗口的左上角算起，而软底片是整屏的，
+ * 不补这个偏移，弹窗里的玻璃就会取到屏幕左上角那块背景（错位）。
+ */
+val LocalPclScreenOffset = staticCompositionLocalOf<androidx.compose.ui.geometry.Offset> {
+    androidx.compose.ui.geometry.Offset.Zero
+}
+
 /** 当前是否装了皮肤插件。 */
 val pclUiThemed: Boolean
     @Composable get() = LocalPclUiTheme.current != null
@@ -376,6 +427,27 @@ object PclUiRuntime {
     var theme by mutableStateOf<PclUiTheme?>(null)
         private set
 
+    /**
+     * 低版本用的「模糊背景底片」。
+     *
+     * Android 12+ 走系统的 `RenderEffect`，这张图用不上（null）；
+     * 低版本没有那套接口，只能自己准备一张缩小过的背景图给玻璃采样。
+     * 由 `PclShell` 在壁纸 / 窗口尺寸变化时重建。
+     */
+    var soft by mutableStateOf<PclSoftBackdrop?>(null)
+
+    /**
+     * 当前启用的插件声明的全部页面。
+     *
+     * 由 `PclShell` 在启动时读一次、插件增删时刷新。放全局是因为
+     * 「布局槽位」要在渲染版块时按 id 找页面，而那个位置拿不到插件目录。
+     */
+    var pages by mutableStateOf<List<PclPluginPageSpec>>(emptyList())
+
+    /** 按 id 找插件页面；找不到返回 null（宁可退回内置界面，也不显示空白）。 */
+    fun pageById(id: String?): PclPluginPageSpec? =
+        id?.let { key -> pages.firstOrNull { it.id == key } }
+
     /** 由插件目录里的 `ui.json` 文本刷新一次。必须在 IO 线程调用。 */
     fun apply(json: String?, id: String = "") {
         theme = json?.let { parsePclUiTheme(it, id) }
@@ -383,6 +455,7 @@ object PclUiRuntime {
 
     fun clear() {
         theme = null
+        soft = null
     }
 }
 
@@ -449,18 +522,30 @@ fun Modifier.pclSurface(
         return this.background(color.copy(alpha = alpha), shape)
     }
 
-    // 系统太老（没有 RenderEffect）或拿不到底片：做不了真模糊，
-    // 但也不能直接填死白 —— 叠一层上亮下暗的半透明色 + 淡投影，至少还有「一块玻璃」的体积。
+    // 系统太老（没有 RenderEffect）或拿不到底片：走不了 `drawBackdrop`。
+    //
+    // 这里以前是「上亮下暗的半透明色块 + 6dp 投影」—— 那是**一块白板**，
+    // 在壁纸上就是一排白条，跟玻璃没关系（用户一眼就看出来了）。
+    // 现在优先用自绘的「软玻璃」：拿一张预模糊的背景图按屏幕坐标采样，
+    // 再补上镜面边、内侧柔光、底部暗边。只有连这张图都没有时才退到极淡的一层色。
     if (backdrop == null || !pclGlassSupported) {
-        val fake = androidx.compose.ui.graphics.Brush.verticalGradient(
-            listOf(
-                color.copy(alpha = (alpha + 0.18f).coerceAtMost(1f)),
-                color.copy(alpha = (alpha * 0.75f).coerceIn(0f, 1f)),
-            ),
+        val soft = PclUiRuntime.soft
+        if (soft != null) {
+            return this.pclSoftGlass(
+                theme = theme,
+                soft = soft,
+                shape = shape,
+                surface = surface,
+                fill = color,
+                fillAlpha = alpha,
+            )
+        }
+        return this.pclFadedGlass(
+            shape = shape,
+            fill = color,
+            fillAlpha = (alpha * 0.55f).coerceIn(0f, 1f),
+            rimAlpha = (theme.glass.highlight * 0.55f).coerceIn(0f, 1f),
         )
-        return this
-            .shadow(6.dp, shape, clip = false)
-            .background(fake, shape)
     }
 
     val glass = theme.glass

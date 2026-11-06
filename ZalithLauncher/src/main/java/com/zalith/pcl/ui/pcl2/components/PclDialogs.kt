@@ -61,7 +61,10 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
@@ -69,9 +72,13 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.zalith.pcl.game.plugin.renderer_v2.data.EnvSettingUnit
 import com.zalith.pcl.ui.pcl2.theme.LocalPclBackdrop
+import com.zalith.pcl.ui.pcl2.theme.LocalPclScreenOffset
 import com.zalith.pcl.ui.pcl2.theme.LocalPclUiTheme
 import com.zalith.pcl.ui.pcl2.theme.PclDimens
+import com.zalith.pcl.ui.pcl2.theme.PclSurface
 import com.zalith.pcl.ui.pcl2.theme.PclUiRenderer
+import com.zalith.pcl.ui.pcl2.theme.PclUiRuntime
+import com.zalith.pcl.ui.pcl2.theme.pclSurface
 import com.zalith.pcl.ui.pcl2.theme.pclFauxGlass
 import com.zalith.pcl.ui.pcl2.theme.PclEase
 import com.zalith.pcl.ui.pcl2.theme.PclTextStyle
@@ -246,22 +253,35 @@ internal fun PclDialogContainer(
             },
             properties = DialogProperties(usePlatformDefaultWidth = false),
         ) {
-            // 弹窗是**另一个窗口**：皮肤参数与背景底片的坐标都对不上，在这里取只会拿到错位的一块。
-            // 所以弹窗里一律关掉皮肤，按钮/胶囊照旧用 PCL 的实色。
-            // 底片必须置空（另一个窗口，坐标对不上）；但主题要留着 ——
-            // 弹窗用的是「拟态玻璃」，不依赖底片，只需要知道 renderer 是不是 glass。
-            CompositionLocalProvider(
-                LocalDensity provides density,
-                LocalPclBackdrop provides null,
+            // 弹窗是**另一个窗口**，`drawBackdrop` 的坐标体系对不上，所以底片一律置空。
+            // 但「软玻璃」不需要那个底片 —— 它吃的是一张整屏的背景小图，
+            // 只要把「本窗口原点在屏幕上的位置」补进去，就能取到正确的背景（见 LocalPclScreenOffset）。
+            val view = LocalView.current
+            var screenOffset by remember { mutableStateOf(Offset.Zero) }
+            Box(
+                modifier = Modifier.onGloballyPositioned {
+                    val loc = IntArray(2)
+                    view.getLocationOnScreen(loc)
+                    val next = Offset(loc[0].toFloat(), loc[1].toFloat())
+                    // 值没变就别赋值：这个回调在每次布局后都会来一次，
+                    // 无条件写 State 会把整个弹窗子树重组一遍。
+                    if (next != screenOffset) screenOffset = next
+                },
             ) {
-                PclDialogHost(
-                    exiting = exiting,
-                    onExitFinished = {
-                        closed = true
-                        onDismiss()
-                    },
+                CompositionLocalProvider(
+                    LocalDensity provides density,
+                    LocalPclBackdrop provides null,
+                    LocalPclScreenOffset provides screenOffset,
                 ) {
-                    content(requestClose)
+                    PclDialogHost(
+                        exiting = exiting,
+                        onExitFinished = {
+                            closed = true
+                            onDismiss()
+                        },
+                    ) {
+                        content(requestClose)
+                    }
                 }
             }
         }
@@ -295,18 +315,32 @@ private fun PclMsgFrame(
                 spotColor = p.color1.copy(alpha = 0.8f),
             )
             .clip(RoundedCornerShape(PclDimens.msgCorner))
-            // 弹窗是独立 Window，真模糊取不到底片 —— 用拟态玻璃（半透明白 + 镜面边）
+            // 弹窗是独立 Window：`drawBackdrop` 取不到主窗口的底片，但**软玻璃**能 ——
+            // 它吃的是一张整屏的背景小图，配合上面的 LocalPclScreenOffset 就能对齐。
+            // 有软底片就做真玻璃（透出身后的背景），没有才退回拟态玻璃。
             .then(
-                if (LocalPclUiTheme.current?.renderer == PclUiRenderer.Glass) {
-                    Modifier.pclFauxGlass(
+                when {
+                    LocalPclUiTheme.current?.renderer != PclUiRenderer.Glass ->
+                        Modifier.background(MsgBackground)
+                    PclUiRuntime.soft != null ->
+                        Modifier.pclSurface(
+                            theme = LocalPclUiTheme.current,
+                            backdrop = null,
+                            shape = RoundedCornerShape(PclDimens.msgCorner),
+                            surface = PclSurface.Panel,
+                            fallbackColor = MsgBackground,
+                            // 弹窗底下压着 scrim，不能像卡片那么透，否则正文会糊进背景。
+                            // 0.58 是「看得出身后有东西」和「字还读得清」之间的位置。
+                            colorOverride = MsgBackground.copy(alpha = 0.58f),
+                            role = "dialog",
+                        )
+                    else -> Modifier.pclFauxGlass(
                         theme = LocalPclUiTheme.current,
                         shape = RoundedCornerShape(PclDimens.msgCorner),
                         fillColor = MsgBackground,
                         fillAlpha = 0.88f,
                         shadowRadius = 20.dp,
                     )
-                } else {
-                    Modifier.background(MsgBackground)
                 }
             ),
     ) {
