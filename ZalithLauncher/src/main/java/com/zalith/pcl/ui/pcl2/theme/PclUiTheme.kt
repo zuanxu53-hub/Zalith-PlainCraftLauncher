@@ -38,6 +38,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
@@ -286,9 +287,31 @@ val LocalPclBackdrop = staticCompositionLocalOf<Backdrop?> { null }
 val pclUiThemed: Boolean
     @Composable get() = LocalPclUiTheme.current != null
 
-/** 这台机器能不能真的做模糊/折射（RenderEffect 要 Android 12+）。 */
+/** 这台机器能不能真的做模糊（RenderEffect 要 Android 12 / API 31）。 */
 val pclGlassSupported: Boolean
     get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+
+/** 折射（lens）要 RuntimeShader，**Android 13 / API 33** 才有。 */
+val pclRefractionSupported: Boolean
+    get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+
+/**
+ * 一句人话的诊断，显示在插件管理页上。
+ *
+ * 玻璃「看着没生效」通常有三种原因，靠猜永远猜不中：
+ * 1. 系统低于 Android 12 —— 没有 RenderEffect，模糊做不了；
+ * 2. 系统是 12 —— 有模糊但没有 RuntimeShader，折射做不了；
+ * 3. 背景是纯色/没壁纸 —— 没有东西可折，糊出来自然是一片白。
+ */
+fun pclGlassDiagnostics(theme: PclUiTheme?): String {
+    if (theme == null) return "未启用皮肤"
+    return buildString {
+        append("渲染器 ").append(if (theme.renderer == PclUiRenderer.Glass) "glass" else "flat")
+        append(" · 系统 API ").append(Build.VERSION.SDK_INT)
+        append(" · 模糊 ").append(if (pclGlassSupported) "可用" else "不可用（需 Android 12）")
+        append(" · 折射 ").append(if (pclRefractionSupported) "可用" else "不可用（需 Android 13）")
+    }
+}
 
 /**
  * 全局皮肤状态。
@@ -357,8 +380,22 @@ fun Modifier.pclSurface(
     // 角色显式关掉玻璃（或整体渲染器是 flat / 老系统 / 无底片）→ 老老实实填色
     val wantGlass = roleStyle?.glass ?: true
 
-    if (!wantGlass || theme.renderer == PclUiRenderer.Flat || backdrop == null || !pclGlassSupported) {
+    if (!wantGlass || theme.renderer == PclUiRenderer.Flat) {
         return this.background(color.copy(alpha = alpha), shape)
+    }
+
+    // 系统太老（没有 RenderEffect）或拿不到底片：做不了真模糊，
+    // 但也不能直接填死白 —— 叠一层上亮下暗的半透明色 + 淡投影，至少还有「一块玻璃」的体积。
+    if (backdrop == null || !pclGlassSupported) {
+        val fake = androidx.compose.ui.graphics.Brush.verticalGradient(
+            listOf(
+                color.copy(alpha = (alpha + 0.18f).coerceAtMost(1f)),
+                color.copy(alpha = (alpha * 0.75f).coerceIn(0f, 1f)),
+            ),
+        )
+        return this
+            .shadow(6.dp, shape, clip = false)
+            .background(fake, shape)
     }
 
     val glass = theme.glass

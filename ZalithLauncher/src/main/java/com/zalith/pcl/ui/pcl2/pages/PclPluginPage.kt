@@ -44,6 +44,7 @@ import com.zalith.pcl.game.plugin.ZlPlugin
 import com.zalith.pcl.game.plugin.ZlPluginManager
 import com.zalith.pcl.ui.pcl2.theme.PclUiRenderer
 import com.zalith.pcl.ui.pcl2.theme.PclUiRuntime
+import com.zalith.pcl.ui.pcl2.theme.pclGlassDiagnostics
 import com.zalith.pcl.ui.pcl2.PclContent
 import com.zalith.pcl.ui.pcl2.PclHintHost
 import com.zalith.pcl.ui.pcl2.components.PclButton
@@ -178,6 +179,13 @@ fun PclPluginPanel() {
                     )
                 }
                 Spacer(Modifier.height(10.dp))
+                // 诊断行：玻璃「看着没生效」时，先看这一行就知道卡在哪一步
+                PclText(
+                    text = pclGlassDiagnostics(PclUiRuntime.theme),
+                    fontSize = 12,
+                    color = p.gray2,
+                )
+                Spacer(Modifier.height(6.dp))
                 PclHint(
                     text = "带 `assets/zplugin/ui.json` 的插件是**界面皮肤**：它不覆盖任何文件，" +
                             "只是把这份参数交给启动器渲染（例如液态玻璃）。同一时间只生效一个皮肤，" +

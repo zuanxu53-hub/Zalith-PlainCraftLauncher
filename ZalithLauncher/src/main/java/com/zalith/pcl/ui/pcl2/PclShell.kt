@@ -515,6 +515,48 @@ private fun PclMainContent(
                             onDrawBehind { drawRect(brush = brush, size = size) }
                         },
                 )
+                // ---- 玻璃态的「默认壁纸」
+                //
+                // 没设背景图时，窗体底色几乎是纯白；白色玻璃叠在白色上，整块界面就糊成一片白
+                // （实测就是「怎么成这样了」）。这里补一层很淡的冷色渐变 + 两个柔光团：
+                // 色调仍然偏白，但玻璃的边缘折射和高光终于有东西可折。
+                if (uiTheme != null) {
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .drawWithCache {
+                                val base = Brush.linearGradient(
+                                    colorStops = arrayOf(
+                                        0f to androidx.compose.ui.graphics.Color(0x66AFC2DA),
+                                        0.55f to androidx.compose.ui.graphics.Color(0x3393A9C6),
+                                        1f to androidx.compose.ui.graphics.Color(0x4DB9C6D6),
+                                    ),
+                                    start = androidx.compose.ui.geometry.Offset(0f, 0f),
+                                    end = androidx.compose.ui.geometry.Offset(size.width, size.height),
+                                )
+                                onDrawBehind {
+                                    drawRect(brush = base, size = size)
+                                    // 两个柔光团，给折射一点可抓的边界
+                                    drawCircle(
+                                        color = androidx.compose.ui.graphics.Color(0x55FFFFFF),
+                                        radius = size.minDimension * 0.55f,
+                                        center = androidx.compose.ui.geometry.Offset(
+                                            size.width * 0.18f,
+                                            size.height * 0.16f,
+                                        ),
+                                    )
+                                    drawCircle(
+                                        color = androidx.compose.ui.graphics.Color(0x33879BB8),
+                                        radius = size.minDimension * 0.7f,
+                                        center = androidx.compose.ui.geometry.Offset(
+                                            size.width * 0.92f,
+                                            size.height * 0.88f,
+                                        ),
+                                    )
+                                }
+                            },
+                    )
+                }
                 // ---- 背景图片（PCL 的 CardBackground）
                 // 铺在窗体最底下：底色/渐变在它下面、界面内容在它上面，
                 // 和 PCL 把图片放在 BorderForm 背景里的叠法一致。
