@@ -117,6 +117,9 @@ import kotlin.math.roundToInt
 private val LabelWidth = 140.dp
 
 /** 从 `content://` 里取显示名（拿不到就返回 null，导入时会用默认文件名）。 */
+/** 判断「是不是视频」用的后缀兜底：有些文件管理器给不出 mime，只看类型会漏。 */
+private val VIDEO_BACKGROUND_EXT = listOf(".mp4", ".webm", ".mkv", ".mov", ".3gp", ".avi", ".m4v")
+
 private fun queryDisplayName(context: Context, uri: Uri): String? =
     runCatching { DocumentFile.fromSingleUri(context, uri)?.name }.getOrNull()
 
@@ -755,30 +758,38 @@ fun PclSetupUiPage() {
     // 「清空背景音乐」的二次确认（PCL 原版也是先弹一个警告框再删）。
     var showClearMusic by remember { mutableStateOf(false) }
 
-    // 「选择背景图片」：PCL 是往文件夹里丢图片（`BtnBackgroundOpen` 打开文件夹），
-    // Android 上换成系统图片选择器，选完复制进应用目录的 `PCL/Background`。
-    val backgroundPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+    // 「导入背景」：图片和视频共用一个入口。
+    //
+    // PCL 原版是「填充文件夹 / 刷新 / 清空」三个按钮，Android 上多了动态背景之后
+    // 变成五个，手机上要横向滚才看得全。现在收成两个：导入背景 / 清除背景，
+    // 图片还是视频由选中的文件类型决定。
+    val backgroundPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        val ok = PclAppearance.importBackground(context, uri, queryDisplayName(context, uri))
-        if (ok) {
-            PclImageLoader.invalidate()
-            PclImageLoader.load(PclAppearance.backgroundImage)
-            PclAppearance.persist(context)
-            PclHintHost.push("背景图片已设置。", PclHintTheme.Green)
-        } else {
-            PclHintHost.push("背景图片导入失败。", PclHintTheme.Red)
-        }
-    }
+        val name = queryDisplayName(context, uri)
+        val mime = runCatching { context.contentResolver.getType(uri) }.getOrNull()
+        val isVideo = mime?.startsWith("video/") == true ||
+                name?.let { VIDEO_BACKGROUND_EXT.any { ext -> it.endsWith(ext, ignoreCase = true) } } == true
 
-    // 「选择动态背景」：把视频复制进 `PCL/Background`，之后当循环静音背景播。
-    val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        val ok = PclAppearance.importBackgroundVideo(context, uri, queryDisplayName(context, uri))
-        if (ok) {
-            PclAppearance.persist(context)
-            PclHintHost.push("动态背景已设置（循环播放、静音）。", PclHintTheme.Green)
+        if (isVideo) {
+            val ok = PclAppearance.importBackgroundVideo(context, uri, name)
+            if (ok) {
+                PclAppearance.persist(context)
+                PclHintHost.push("动态背景已设置（循环播放、静音）。", PclHintTheme.Green)
+            } else {
+                PclHintHost.push("动态背景导入失败，换个视频格式试试。", PclHintTheme.Red)
+            }
         } else {
-            PclHintHost.push("动态背景导入失败，换个视频格式试试。", PclHintTheme.Red)
+            val ok = PclAppearance.importBackground(context, uri, name)
+            if (ok) {
+                PclImageLoader.invalidate()
+                PclImageLoader.load(PclAppearance.backgroundImage)
+                PclAppearance.persist(context)
+                PclHintHost.push("背景图片已设置。", PclHintTheme.Green)
+            } else {
+                PclHintHost.push("背景图片导入失败，换个图片格式试试。", PclHintTheme.Red)
+            }
         }
     }
 
@@ -958,49 +969,21 @@ fun PclSetupUiPage() {
                     horizontalArrangement = Arrangement.spacedBy(15.dp),
                 ) {
                     PclButton(
-                        text = "选择背景图片",
+                        text = "导入背景",
                         colorState = PclColorState.Highlight,
-                        onClick = { backgroundPicker.launch("image/*") },
+                        onClick = { backgroundPicker.launch(arrayOf("image/*", "video/*")) },
                     )
                     PclButton(
-                        text = PclStrings.LangSetBackgroundPicRefresh,
-                        onClick = {
-                            val ok = PclAppearance.refreshBackground(context)
-                            PclAppearance.persist(context)
-                            PclImageLoader.invalidate()
-                            if (ok) {
-                                PclHintHost.push("已换一张背景图片。", PclHintTheme.Green)
-                            } else {
-                                PclHintHost.push(
-                                    "背景文件夹里没有图片了，先用「选择背景图片」导入一张。",
-                                    PclHintTheme.Red,
-                                )
-                            }
-                        },
-                    )
-                    PclButton(
-                        text = PclStrings.LangSetBackgroundPicEmpty,
+                        text = "清除背景",
                         colorState = PclColorState.Red,
                         onClick = {
-                            // 连同文件一起删掉，否则「刷新」或者重启又会把它抽回来
+                            // 视频和图片一起清掉：只清视频会「退回到图片」，
+                            // 用户看到的是「清除了但背景还在」，容易当成没生效。
+                            PclAppearance.clearBackgroundVideo(context)
                             PclAppearance.clearBackground(context)
                             PclAppearance.persist(context)
                             PclImageLoader.invalidate()
-                            PclHintHost.push("背景图片已删除。", PclHintTheme.Green)
-                        },
-                    )
-                    PclButton(
-                        text = "选择动态背景",
-                        colorState = PclColorState.Highlight,
-                        onClick = { videoPicker.launch("video/*") },
-                    )
-                    PclButton(
-                        text = "清除动态背景",
-                        colorState = PclColorState.Red,
-                        onClick = {
-                            PclAppearance.clearBackgroundVideo(context)
-                            PclAppearance.persist(context)
-                            PclHintHost.push("动态背景已删除。", PclHintTheme.Green)
+                            PclHintHost.push("背景已清除。", PclHintTheme.Green)
                         },
                     )
                 }
@@ -1008,13 +991,11 @@ fun PclSetupUiPage() {
                     text = "「不透明度」与「背景模糊」用的是 Zalith 的同名设置项（`launcherBackgroundOpacity` / " +
                             "`backgroundBlur`），两边改的是同一个值。" +
                             "背景模糊是启动器自己实现的高斯模糊（分层卷积，CPU 预先算好再交给 GPU 放大），" +
-                            "所以不依赖 Android 12 的实时模糊，各版本表现一致。" +
-                            "「填充文件夹」这套 PCL 的做法在 Android 上换成了「选择背景图片」：" +
-                            "图片会被复制进应用目录的 `PCL/Background` 里，之后「刷新背景图片」会随机抽一张。" +
-                            "「清空背景图片」会把当前这张从文件夹里删掉，不会在重启后又被抽回来；" +
-                            "文件夹里如果还有别的图，仍可以用「刷新背景图片」换着用。\n" +
-                            "「选择动态背景」可以选一段视频（mp4 / webm 等）当循环播放的静音背景：" +
-                            "设了动态背景就以视频为准，清掉它会自动退回图片背景；视频不做模糊。",
+                            "所以不依赖 Android 12 的实时模糊，各版本表现一致。\n" +
+                            "「导入背景」一个入口管两种：选图片就是静态背景，选视频（mp4 / webm 等）就是" +
+                            "循环播放的静音动态背景。文件都会被复制进应用目录的 `PCL/Background`。" +
+                            "设了视频以视频为准，删掉视频会自动退回图片背景。\n" +
+                            "「清除背景」把图片和视频一起删掉，不会在重启后又自己回来。",
                     theme = PclHintTheme.Blue,
                 )
             }
