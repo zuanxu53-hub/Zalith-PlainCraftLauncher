@@ -88,6 +88,7 @@ object PclLeftLabels {
     val setupGamepad = "手柄设置"
     val setupJava = "Java 管理"
     val setupControlManage = "控制管理"
+    val setupPlugin = "插件管理"
 
     val setup = listOf(
         setupGame,
@@ -98,6 +99,7 @@ object PclLeftLabels {
         setupGamepad,
         setupJava,
         setupControlManage,
+        setupPlugin,
     )
 
     // ------------------------------------------------------------ 「更多」（PageOtherLeft）

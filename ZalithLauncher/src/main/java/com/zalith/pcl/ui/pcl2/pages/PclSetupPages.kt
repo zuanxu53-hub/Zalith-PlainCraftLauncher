@@ -104,7 +104,6 @@ import com.zalith.pcl.ui.pcl2.data.PclHomePresets
 import com.zalith.pcl.ui.pcl2.data.PclHomeType
 import com.zalith.pcl.ui.pcl2.data.PclSettings
 import com.zalith.pcl.ui.pcl2.pages.pclInstanceVersionPage
-import com.zalith.pcl.ui.pcl2.pages.pclPluginPage
 import com.zalith.pcl.ui.pcl2.theme.PclDimens
 import com.zalith.pcl.ui.pcl2.theme.pclPalette
 import com.zalith.pcl.utils.animation.TransitionAnimationType
@@ -299,25 +298,6 @@ fun PclSetupLaunchPage() {
             )
         }
         Spacer(Modifier.height(PclDimens.cardGap))
-
-        // ---- 插件（资源包式的文件覆盖）
-        PclCard(modifier = Modifier.fillMaxWidth(), title = "插件") {
-            Column {
-                PclText(
-                    text = "用「资源包」的思路改游戏或启动器目录里的文件：一个插件就是一个 APK，" +
-                            "里面放一棵与目标目录同构的文件树（`assets/zplugin/files/`），启用后覆盖过去。" +
-                            "启动器只把它当数据读，不会加载插件里的代码。",
-                    fontSize = 12,
-                )
-                Spacer(Modifier.height(10.dp))
-                PclButton(
-                    text = "管理插件",
-                    colorState = PclColorState.Highlight,
-                    onClick = { nav.push(pclPluginPage()) },
-                )
-            }
-        }
-
         Spacer(Modifier.height(PclDimens.cardGap))
         PclHint(
             text = "以上设置项均直接读写 Zalith 的真实配置，修改后立即保存并生效。",

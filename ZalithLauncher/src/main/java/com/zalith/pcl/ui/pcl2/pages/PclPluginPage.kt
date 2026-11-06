@@ -28,12 +28,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -48,8 +44,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.zalith.pcl.game.plugin.ZlPlugin
 import com.zalith.pcl.game.plugin.ZlPluginManager
+import com.zalith.pcl.ui.pcl2.PclContent
 import com.zalith.pcl.ui.pcl2.PclHintHost
-import com.zalith.pcl.ui.pcl2.PclSubPage
 import com.zalith.pcl.ui.pcl2.components.PclButton
 import com.zalith.pcl.ui.pcl2.components.PclCard
 import com.zalith.pcl.ui.pcl2.components.PclColorState
@@ -63,14 +59,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** 「插件」页。 */
-fun pclPluginPage(): PclSubPage = PclSubPage(
-    title = "插件",
-    content = { PclPluginContent() },
-)
-
+/**
+ * 「设置 → 插件管理」页的内容。
+ *
+ * 直接挂在设置页的右栏（`PclSetupRight` 的 index 8），不再单独 push 一个二级页 ——
+ * 左侧栏已经有入口了，再叠一层返回按钮只会多一次点击。
+ */
 @Composable
-private fun PclPluginContent() {
+fun PclPluginPanel() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val p = pclPalette
@@ -108,12 +104,9 @@ private fun PclPluginContent() {
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 4.dp),
-    ) {
+    // 右栏统一用 PclContent：它自带内边距、滚动与「回顶」信号，
+    // 自己再套一层 verticalScroll 会变成嵌套滚动，滚动手感很怪。
+    PclContent {
         PclCard(modifier = Modifier.fillMaxWidth(), title = "安装插件") {
             Column {
                 PclText(

@@ -208,6 +208,7 @@ import com.zalith.pcl.game.download.assets.utils.getMcmodTitle
 import com.zalith.pcl.setting.AllSettings
 import com.zalith.pcl.setting.enums.MirrorSourceType
 import com.zalith.pcl.ui.pcl2.data.PclRuntime
+import com.zalith.pcl.ui.pcl2.pages.PclPluginPanel
 import com.zalith.pcl.ui.pcl2.pages.pclDownloadManagerPage
 import com.zalith.pcl.ui.pcl2.pages.pclDiscardIncompleteVersion
 import com.zalith.pcl.ui.pcl2.pages.pclInstallDownloadedSave
@@ -3284,6 +3285,10 @@ fun PclSetupLeft(nav: PclNavController) {
             PclLeftEntry.Item(
                 7, PclLeftLabels.setupControlManage, PclIcons.setupControlManage, 0.85f,
             ),
+            // 插件管理：和上面几页一样没有「本页设置」可复位，所以不给复位按钮
+            PclLeftEntry.Item(
+                8, PclLeftLabels.setupPlugin, PclIcons.setupPlugin, 0.9f,
+            ),
         ).filterIndexed { index, _ -> !PclSkinSettings.shouldHide(PCL_SETUP_KEYS.getOrElse(index) { "" }) },
     )
 }
@@ -3432,7 +3437,8 @@ fun PclSetupRight(nav: PclNavController) {
         4 -> PclSetupControlPage()
         5 -> PclSetupGamepadPage()
         6 -> PclSetupJavaPage()
-        else -> PclSetupControlManagePage()
+        7 -> PclSetupControlManagePage()
+        else -> PclPluginPanel()
     }
 }
 
