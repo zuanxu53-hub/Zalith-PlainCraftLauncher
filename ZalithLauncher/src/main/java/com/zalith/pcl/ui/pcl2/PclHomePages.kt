@@ -21,6 +21,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.rememberCoroutineScope
+import com.zalith.pcl.game.account.wardrobe.isSlimModel
 import com.zalith.pcl.game.account.wardrobe.validateSkinFile
 import com.zalith.pcl.ui.pcl2.data.PclLoginSettings
 import com.zalith.pcl.ui.pcl2.data.isThirdParty
@@ -764,6 +765,114 @@ private fun cropSkinHead(skin: Bitmap, pixelSize: Int): Bitmap {
     return avatar
 }
 
+/** 已经校验通过、等用户确认手臂粗细的一次皮肤导入。 */
+private data class PendingSkinImport(
+    val account: Account,
+    val temp: File,
+)
+
+/**
+ * 皮肤导入：选图 → 校验 → **询问手臂粗细** → 写入账户。
+ *
+ * 为什么非要问一句：Minecraft 的皮肤有两种版式 ——
+ *   · 64×32（粗手臂，Steve / classic）
+ *   · 64×64（细手臂，Alex / slim）
+ * 两者手臂宽度不同，套错的结果是手臂被横向拉扁或错位一条，而**光看缩略图看不出来**。
+ *
+ * `File.isSlimModel()` 能用「手臂列是否全透明」猜一次，但它只是猜：
+ * 不少 64×64 的粗手臂皮肤（带第二层外套）会被猜成细手臂。所以这里
+ * 把猜的结果作为**预选项**，再让用户确认一次，避免默默写错。
+ *
+ * @return 一个 `(Account) -> Unit`：调用它就会为这个账户拉起选图。
+ */
+@Composable
+private fun rememberSkinImporter(
+    onImported: () -> Unit,
+): (Account) -> Unit {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var target by remember { mutableStateOf<Account?>(null) }
+    var pending by remember { mutableStateOf<PendingSkinImport?>(null) }
+    // 预选：`classic` = 粗手臂，`slim` = 细手臂
+    var suggested by remember { mutableStateOf("classic") }
+
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        val account = target
+        target = null
+        if (uri == null || account == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val prepared = withContext(Dispatchers.IO) {
+                runCatching {
+                    val temp = File(context.cacheDir, "pcl_skin_import.png")
+                    val opened = context.contentResolver.openInputStream(uri)?.use { input ->
+                        temp.outputStream().use { input.copyTo(it) }
+                        true
+                    } ?: false
+                    if (!opened) return@runCatching null
+                    if (!validateSkinFile(temp)) return@runCatching null
+                    PendingSkinImport(account, temp) to temp.isSlimModel()
+                }.getOrNull()
+            }
+            if (prepared == null) {
+                PclHintHost.push("换皮肤失败：文件不是有效的皮肤", PclHintTheme.Red)
+                return@launch
+            }
+            suggested = if (prepared.second) "slim" else "classic"
+            pending = prepared.first
+        }
+    }
+
+    // ---- 手臂粗细：先按自动判断预选，用户点一下确认 ----
+    val ask = pending
+    if (ask != null) {
+        PclSelectDialog(
+            title = "这套皮肤的手臂是？",
+            options = listOf(
+                "classic" to "粗手臂（Steve / 64×32）",
+                "slim" to "细手臂（Alex / 64×64）",
+            ),
+            current = suggested,
+            onSelect = { id ->
+                pending = null
+                val model = if (id == "slim") SkinModelType.ALEX else SkinModelType.STEVE
+                scope.launch {
+                    val error = withContext(Dispatchers.IO) {
+                        runCatching {
+                            val skinFile = ask.account.getSkinFile()
+                            skinFile.parentFile?.mkdirs()
+                            ask.temp.copyTo(skinFile, overwrite = true)
+                            // 只改模型标记，**不动 profileId**：
+                            // profileId 是离线 UUID，改了等于换了一个账户，
+                            // 已有存档/统计会跟它对不上。模型只影响渲染与 yggdrasil 的 model 字段。
+                            ask.account.skinModelType = model
+                            null
+                        }.getOrElse { it.message ?: it.javaClass.simpleName }
+                    }
+                    if (error == null) {
+                        runCatching { AccountsManager.suspendSaveAccount(ask.account) }
+                        AccountsManager.refreshWardrobe()
+                        onImported()
+                        PclHintHost.push(
+                            "皮肤已更换（${if (model == SkinModelType.ALEX) "细手臂" else "粗手臂"}）。",
+                            PclHintTheme.Green,
+                        )
+                    } else {
+                        PclHintHost.push("换皮肤失败：$error", PclHintTheme.Red)
+                    }
+                }
+            },
+            onDismiss = { pending = null },
+        )
+    }
+
+    return remember(picker) {
+        { account: Account ->
+            target = account
+            picker.launch("image/png")
+        }
+    }
+}
+
 /** `MySkin` —— 64×64 的皮肤头像（底色半透明、`ColorObject2 @0.2` 阴影，脸图 56）。 */
 @Composable
 private fun PclSkinAvatar(
@@ -959,31 +1068,8 @@ private fun PclMicrosoftAccountPanel(
     // ---- 皮肤（`BtnSkin` 的「修改皮肤 / 刷新」两项；Zalith 的皮肤存在 `Account.getSkinFile()`）
     var skinToken by remember { mutableStateOf(0) }
     val scope = rememberCoroutineScope()
-    val skinPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            val error = withContext(Dispatchers.IO) {
-                runCatching {
-                    val temp = File(context.cacheDir, "pcl_ms_skin.png")
-                    context.contentResolver.openInputStream(uri)?.use { input ->
-                        temp.outputStream().use { input.copyTo(it) }
-                    } ?: return@runCatching "读取不了所选图片"
-                    if (!validateSkinFile(temp)) return@runCatching "文件不是有效的皮肤"
-                    val skinFile = current.getSkinFile()
-                    skinFile.parentFile?.mkdirs()
-                    temp.copyTo(skinFile, overwrite = true)
-                    null
-                }.getOrElse { it.message ?: it.javaClass.simpleName }
-            }
-            if (error == null) {
-                skinToken++
-                AccountsManager.refreshWardrobe()
-                PclHintHost.push("皮肤已更换。", PclHintTheme.Green)
-            } else {
-                PclHintHost.push("换皮肤失败：$error", PclHintTheme.Red)
-            }
-        }
-    }
+    // 选图 → 校验 → 询问手臂粗细 → 写入，全部在共用导入器里
+    val importSkin = rememberSkinImporter { skinToken++ }
 
     var skinMenu by remember { mutableStateOf(false) }
     var editMenu by remember { mutableStateOf(false) }
@@ -1060,7 +1146,7 @@ private fun PclMicrosoftAccountPanel(
                 ) {
                     DropdownMenuItem(
                         text = { Text("修改皮肤", style = PclTextStyle.base(p)) },
-                        onClick = { skinMenu = false; skinPicker.launch("image/png") },
+                        onClick = { skinMenu = false; importSkin(current) },
                     )
                     DropdownMenuItem(
                         text = { Text("刷新皮肤", style = PclTextStyle.base(p)) },
@@ -1483,31 +1569,8 @@ private fun PclAuthAccountPanel(
 
     // 「修改皮肤」：外置账户的真皮肤由认证服务器给（`downloadYggdrasil`），
     // 这里选的文件只覆盖本地那一份，语义和正版面板的「修改皮肤」相同。
-    val skinPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            val error = withContext(Dispatchers.IO) {
-                runCatching {
-                    val temp = File(context.cacheDir, "pcl_auth_skin.png")
-                    context.contentResolver.openInputStream(uri)?.use { input ->
-                        temp.outputStream().use { input.copyTo(it) }
-                    } ?: return@runCatching "读取不了所选图片"
-                    if (!validateSkinFile(temp)) return@runCatching "文件不是有效的皮肤"
-                    val skinFile = current.getSkinFile()
-                    skinFile.parentFile?.mkdirs()
-                    temp.copyTo(skinFile, overwrite = true)
-                    null
-                }.getOrElse { it.message ?: it.javaClass.simpleName }
-            }
-            if (error == null) {
-                skinToken++
-                AccountsManager.refreshWardrobe()
-                PclHintHost.push("皮肤已更换。", PclHintTheme.Green)
-            } else {
-                PclHintHost.push("换皮肤失败：$error", PclHintTheme.Red)
-            }
-        }
-    }
+    // 选图 → 校验 → 询问手臂粗细 → 写入，全部在共用导入器里
+    val importSkin = rememberSkinImporter { skinToken++ }
 
     // 老账户 / 上次拉皮肤失败：打开面板时补拉一次，别让头像一直停在默认 Steve。
     LaunchedEffect(current.uniqueUUID) {
@@ -1585,7 +1648,7 @@ private fun PclAuthAccountPanel(
                 ) {
                     DropdownMenuItem(
                         text = { Text("修改皮肤", style = PclTextStyle.base(p)) },
-                        onClick = { skinMenu = false; skinPicker.launch("image/png") },
+                        onClick = { skinMenu = false; importSkin(current) },
                     )
                     DropdownMenuItem(
                         text = { Text("刷新皮肤", style = PclTextStyle.base(p)) },
@@ -1666,40 +1729,10 @@ private fun PclOfflineLoginPanel(
 
     // ---- 换皮肤（PCL 的离线页点头像就是换皮肤；Zalith 的皮肤存在 `Account.getSkinFile()`）
     var skinToken by remember { mutableStateOf(0) }
-    val skinScope = rememberCoroutineScope()
-    val skinContext = LocalContext.current
-    // 这次选图到底写给哪个账户。之所以存下来而不是在回调里现算 `matched`：
-    // 一是账户可能是刚刚才建出来的（见下面的 onClick），二是 `matched` 是每次重组重算的
-    // 普通值，回调不保证拿到最新一帧的那个。`skinPickTarget` 是 remember 出来的 state，
-    // 闭包拿到的始终是同一个 MutableState，读出来一定是最新值。
-    var skinPickTarget by remember { mutableStateOf<Account?>(null) }
-    val skinPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        val target = skinPickTarget
-        skinPickTarget = null
-        if (uri == null || target == null) return@rememberLauncherForActivityResult
-        skinScope.launch {
-            val result = withContext(Dispatchers.IO) {
-                runCatching {
-                    val temp = File(skinContext.cacheDir, "pcl_offline_skin.png")
-                    skinContext.contentResolver.openInputStream(uri)?.use { input ->
-                        temp.outputStream().use { input.copyTo(it) }
-                    } ?: return@runCatching "读取不了所选图片"
-                    if (!validateSkinFile(temp)) return@runCatching "文件不是有效的皮肤"
-                    val skinFile = target.getSkinFile()
-                    skinFile.parentFile?.mkdirs()
-                    temp.copyTo(skinFile, overwrite = true)
-                    null
-                }.getOrElse { it.message ?: it.javaClass.simpleName }
-            }
-            if (result == null) {
-                skinToken++
-                AccountsManager.refreshWardrobe()
-                PclHintHost.push("皮肤已更换。", PclHintTheme.Green)
-            } else {
-                PclHintHost.push("换皮肤失败：$result", PclHintTheme.Red)
-            }
-        }
-    }
+    // 选图 → 校验 → 询问手臂粗细 → 写入，全部在共用导入器里。
+    // 「写给哪个账户」由导入器自己记（`target` 是 remember 的 state），
+    // 不必在这里另存一份 `matched` 的快照 —— 那样反而会拿到过期的那一帧。
+    val importSkin = rememberSkinImporter { skinToken++ }
     PclSkinAvatar(
         account = matched,
         fallbackName = typed,
@@ -1708,8 +1741,7 @@ private fun PclOfflineLoginPanel(
             val target = matched ?: current
             when {
                 target != null -> {
-                    skinPickTarget = target
-                    skinPicker.launch("image/png")
+                    importSkin(target)
                 }
                 // 账户还没建出来时，就直接用输入框里的名字现建一个，建完接着拉起选图。
                 //
@@ -1729,8 +1761,7 @@ private fun PclOfflineLoginPanel(
                     AccountsManager.accountsFlow.value
                         .firstOrNull { it.isLocalAccount() && it.username.equals(typed, ignoreCase = true) }
                         ?.let { created ->
-                            skinPickTarget = created
-                            skinPicker.launch("image/png")
+                            importSkin(created)
                         }
                 }
             }

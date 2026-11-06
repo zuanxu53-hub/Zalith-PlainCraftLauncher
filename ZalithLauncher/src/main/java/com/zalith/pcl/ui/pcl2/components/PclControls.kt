@@ -1834,12 +1834,18 @@ fun PclSlider(
         label = "pclSliderDot",
     )
 
+    // 是不是要「液态滑条」的外观（粗轨道 + 大白胶囊滑块）。
+    // 只有装了液态玻璃插件才这样；否则保持 PCL 原本的细线 + 小圆点。
+    // 之前把画法改成了液态，但**没有分支** —— 没装插件时也变成了液态，
+    // 这就把 PCL 原始外观改掉了，属于越权。
+    val liquidLook = uiTheme.glassEnabledFor("slider")
+
     Canvas(
         modifier = modifier
             .fillMaxWidth()
-            .height(26.dp)
+            .height(if (liquidLook) 26.dp else 16.dp)
             .then(
-                if (uiTheme.glassEnabledFor("slider")) {
+                if (liquidLook) {
                     Modifier.pclSurface(
                         theme = uiTheme,
                         backdrop = uiBackdrop,
@@ -1876,6 +1882,31 @@ fun PclSlider(
     ) {
         val cy = size.height / 2f
         val v = value.coerceIn(0f, 1f)
+
+        if (!liquidLook) {
+            // ---- PCL 原版（`MySlider.xaml`）：1dp 底轨 + 2dp 已走过段 + 5dp 小圆点
+            drawLine(
+                color = p.bg0.copy(alpha = 0.3f),
+                start = Offset(0f, cy),
+                end = Offset(size.width, cy),
+                strokeWidth = 1.dp.toPx(),
+            )
+            drawLine(
+                color = activeColor,
+                start = Offset(0f, cy),
+                end = Offset(size.width * v, cy),
+                strokeWidth = 2.dp.toPx(),
+            )
+            val dot = 5.dp.toPx() * dotScaleState.value
+            drawCircle(color = p.bg0, radius = dot, center = Offset(size.width * v, cy))
+            drawCircle(
+                color = activeColor,
+                radius = dot,
+                center = Offset(size.width * v, cy),
+                style = Stroke(width = 1.2.dp.toPx()),
+            )
+            return@Canvas
+        }
 
         // ---- 液态滑条的样子（参照源码 LiquidSlider 的观感）：
         // 粗胶囊轨道 + 整条高亮 + 一个明显大于轨道的大胶囊滑块。
