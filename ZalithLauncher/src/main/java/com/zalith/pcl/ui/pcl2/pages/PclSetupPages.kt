@@ -851,7 +851,9 @@ fun PclSetupUiPage() {
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         PclRadioBox(
-                            text = "自动",
+                            // 自动档就是固定 75%：直接把数值写在选项里，
+                            // 否则用户看到「自动」根本不知道生效的是多大。
+                            text = "自动（75%）",
                             checked = PclSkinSettings.uiScale == PclSkinSettings.UI_SCALE_AUTO,
                             onCheckedChange = {
                                 PclSkinSettings.applyUiScale(PclSkinSettings.UI_SCALE_AUTO)
@@ -873,8 +875,9 @@ fun PclSetupUiPage() {
                 PclHint(
                     text = "「界面缩放」是照着 PCL 在 Windows 显示缩放下的行为做的：" +
                             "整个界面（字号、控件、间距）一起等比放大，不会像系统「字体大小」那样" +
-                            "只放大文字、把固定高的容器撑破。自动档会按窗口大小挑一档；" +
-                            "50% / 75% 是给「窗口本来就小、想把界面压得更紧凑」的情况留的。",
+                            "只放大文字、把固定高的容器撑破。\n" +
+                            "「自动」= 固定 75%，不再按窗口尺寸算，所以不同机器上界面大小一致；" +
+                            "想更紧凑选 50%，嫌字小就往上加。",
                     theme = PclHintTheme.Blue,
                 )
                 // ---- 启动面板位置

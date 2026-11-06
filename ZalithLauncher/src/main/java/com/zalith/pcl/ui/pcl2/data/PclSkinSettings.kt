@@ -71,10 +71,10 @@ object PclSkinSettings {
     private const val KEY_UI_SCALE = "pcl2.ui.scale"
     private const val KEY_HOME_PANEL_RIGHT = "pcl2.ui.homePanelRight"
 
-    /** 「界面缩放」的自动档：按窗口尺寸挑一个最接近 PCL 观感的档位。 */
+    /** 「界面缩放」的自动档：固定 75%（见 [resolveScale]）。 */
     const val UI_SCALE_AUTO = -1
 
-    /** 自动档的上限。PCL 的窗口是 850×500，放大到窗口里放得下就停。 */
+    /** 历史上自动档曾按窗口尺寸放大，上限 1.25；现在固定 75%，这个常量只为兼容旧存档保留。 */
     const val UI_SCALE_MAX = 1.25f
 
     /** 手动可选档位（百分比）。 */
