@@ -20,8 +20,6 @@
 
 package com.zalith.pcl.ui.pcl2.pages
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -72,42 +70,58 @@ fun PclPluginPanel() {
     val p = pclPalette
 
     var plugins by remember { mutableStateOf<List<ZlPlugin>>(emptyList()) }
-    var busy by remember { mutableStateOf(false) }
+    var scanning by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<ZlPlugin?>(null) }
 
     fun reload() {
         plugins = runCatching { ZlPluginManager.list(context) }.getOrDefault(emptyList())
     }
 
-    LaunchedEffect(Unit) { reload() }
-
-    // 选 APK：不同文件管理器给的 mime 五花八门，直接收 */*，真正的格式判断由管理器做
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        if (busy) return@rememberLauncherForActivityResult
-        busy = true
+    // 自动识别：进页面就扫一遍「下载」文件夹、插件根目录和投递目录，
+    // 认出来就直接装上，不需要用户去点选择文件。
+    fun scan(announce: Boolean) {
+        if (scanning) return
+        scanning = true
         scope.launch {
             val result = withContext(Dispatchers.IO) {
-                runCatching { ZlPluginManager.install(context, uri) }
+                runCatching { ZlPluginManager.scan(context) }.getOrNull()
             }
-            busy = false
-            result.onSuccess { plugin ->
-                PclHintHost.push(
-                    "已安装「${plugin.name}」${plugin.version.ifBlank { "" }}，${plugin.fileCount} 个文件已覆盖到" +
-                            ZlPluginManager.targetLabel(plugin.target) + "。",
-                    PclHintTheme.Green,
+            scanning = false
+            reload()
+
+            if (result == null) {
+                if (announce) PclHintHost.push("自动识别插件失败，换个方式再试。", PclHintTheme.Red)
+                return@launch
+            }
+            val lines = buildList {
+                if (result.installed.isNotEmpty()) {
+                    add(
+                        "已自动安装 ${result.installed.size} 个插件：" +
+                                result.installed.joinToString("、") { it.name }
+                    )
+                }
+                result.rejected.take(2).forEach { add(it) }
+            }
+            when {
+                lines.isEmpty() && announce -> PclHintHost.push("没有发现新的插件 APK。", PclHintTheme.Blue)
+                lines.isNotEmpty() -> PclHintHost.push(
+                    lines.joinToString("\n"),
+                    if (result.rejected.isEmpty()) PclHintTheme.Green else PclHintTheme.Red,
                 )
-                reload()
-            }.onFailure { e ->
-                PclHintHost.push(e.message ?: "插件安装失败。", PclHintTheme.Red)
             }
         }
+    }
+
+    // 首次进入（以及每次切回本页）自动扫一次；静默执行，没东西就不弹提示。
+    LaunchedEffect(Unit) {
+        reload()
+        scan(announce = false)
     }
 
     // 右栏统一用 PclContent：它自带内边距、滚动与「回顶」信号，
     // 自己再套一层 verticalScroll 会变成嵌套滚动，滚动手感很怪。
     PclContent {
-        PclCard(modifier = Modifier.fillMaxWidth(), title = "安装插件") {
+        PclCard(modifier = Modifier.fillMaxWidth(), title = "自动识别") {
             Column {
                 PclText(
                     text = "插件和 Minecraft 的资源包一个思路：每个插件是一个**独立 APK**" +
@@ -118,18 +132,32 @@ fun PclPluginPanel() {
                     fontSize = 12,
                 )
                 Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(15.dp)) {
+                PclText(
+                    text = "不需要手动选文件。把插件 APK 放到下面任意一个位置，进入本页就会自动认出来并装好：\n" +
+                            "· 系统「下载」文件夹 —— 下载完直接回来就行\n" +
+                            "· 插件根目录 `plugins/`（散装 .apk）\n" +
+                            "· 投递目录 `plugins/incoming/` —— 装完会把原件清掉",
+                    fontSize = 12,
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(15.dp),
+                ) {
                     PclButton(
-                        text = if (busy) "正在安装…" else "选择插件 APK",
+                        text = if (scanning) "正在识别…" else "重新识别",
                         colorState = PclColorState.Highlight,
-                        enabled = !busy,
-                        onClick = { picker.launch(arrayOf("*/*")) },
+                        enabled = !scanning,
+                        onClick = { scan(announce = true) },
                     )
-                    PclButton(text = "刷新列表", enabled = !busy, onClick = { reload() })
+                    if (scanning) {
+                        PclText(text = "正在扫描插件 APK…", fontSize = 12, color = p.gray2)
+                    }
                 }
                 Spacer(Modifier.height(10.dp))
                 PclHint(
-                    text = "普通压缩包会被拒绝：插件必须是能被系统识别出包名的 APK。" +
+                    text = "判断标准只有一个：APK 里有没有 `assets/zplugin/plugin.json`。" +
+                            "普通应用 APK 和改了后缀的压缩包不会被认成插件，也不会打扰你。" +
                             "启动器只读它 assets 里的文件，不会加载插件 APK 的代码，也不会执行它。" +
                             "安装时如果插件想写入账号数据库、登录令牌这类路径，整包会被拒绝。",
                     theme = PclHintTheme.Blue,

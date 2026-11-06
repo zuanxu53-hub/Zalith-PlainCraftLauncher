@@ -20,6 +20,7 @@ package com.zalith.pcl.game.plugin
 
 import android.content.Context
 import android.net.Uri
+import android.os.Environment
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.google.gson.annotations.SerializedName
@@ -39,6 +40,12 @@ private const val FILES_PREFIX = ASSET_ROOT + "files/"
 /** 目标根：游戏目录（版本、模组、资源包那一套）与启动器数据目录（背景、音乐等）。 */
 const val TARGET_MINECRAFT = "minecraft"
 const val TARGET_LAUNCHER = "launcher"
+
+/** 插件投递目录名（`<插件根>/incoming`）：APK 丢进来，装完自动清掉。 */
+private const val INCOMING_DIR = "incoming"
+
+/** 自动识别的「处理过的 APK」记录，避免同一个文件反复安装。 */
+private const val SCAN_RECORD = "scan.json"
 
 /**
  * 绝对不允许插件碰的路径片段。
@@ -116,6 +123,25 @@ private data class AppliedRecord(
 )
 
 /**
+ * 自动识别的去重记录。
+ *
+ * 用「路径 + 大小 + 修改时间」当指纹：文件名不变但内容换了（升级），指纹会变，就会被重新安装。
+ */
+private data class ScanRecord(
+    val path: String = "",
+    val size: Long = 0L,
+    val modified: Long = 0L,
+)
+
+/** 一次自动识别的结果。 */
+data class PluginScanResult(
+    /** 本次新装上（或升级）的插件。 */
+    val installed: List<ZlPlugin> = emptyList(),
+    /** 认出来是插件但没装成的，元素形如「xxx.apk：原因」。 */
+    val rejected: List<String> = emptyList(),
+)
+
+/**
  * 资源包式插件管理器。
  *
  * 玩法与 MC 的资源包一样：插件 APK 里放一棵**与目标目录同构的文件树**，
@@ -156,8 +182,105 @@ object ZlPluginManager {
             .orEmpty()
     }
 
+    /** 插件投递目录：APK 丢进来，进入插件页被自动装上后原件就删掉。 */
+    fun incomingDir(context: Context): File =
+        File(root(context), INCOMING_DIR).apply { mkdirs() }
+
     /**
-     * 安装（或升级）一个插件 APK。
+     * 自动识别插件。
+     *
+     * 依次扫这三个位置里的 `.apk`（都只扫一层，不递归）：
+     * 1. `<插件根>/incoming/` —— 投递目录，装上之后原件删掉
+     * 2. `<插件根>/` —— 散装 APK，装完留在原地
+     * 3. 系统「下载」文件夹 —— 用户下载插件后直接回来就能看到
+     *
+     * 判断标准只有一个：APK 里有没有 `assets/zplugin/plugin.json`。
+     * 普通应用 APK、随便改后缀的压缩包都不算插件，会被静默跳过（不骚扰用户）。
+     * 处理过的文件记在 `scan.json` 里（路径 + 大小 + 修改时间），不会反复安装。
+     *
+     * 必须在 IO 线程调用。
+     */
+    fun scan(context: Context): PluginScanResult {
+        val root = root(context).apply { mkdirs() }
+        val incoming = incomingDir(context)
+        val sources = listOfNotNull(
+            incoming,
+            root,
+            downloadDir(),
+        )
+
+        val records = readScanRecords(root).toMutableList()
+        val installed = mutableListOf<ZlPlugin>()
+        val rejected = mutableListOf<String>()
+
+        sources.forEachIndexed { sourceIndex, dir ->
+            if (!dir.isDirectory) return@forEachIndexed
+            val apks = dir.listFiles()
+                ?.filter { it.isFile && it.name.endsWith(".apk", ignoreCase = true) }
+                ?.sortedBy { it.name.lowercase() }
+                .orEmpty()
+
+            apks.forEach { apk ->
+                val size = apk.length()
+                val modified = apk.lastModified()
+                if (size <= 0L) return@forEach
+                if (records.any { it.path == apk.absolutePath && it.size == size && it.modified == modified }) {
+                    return@forEach
+                }
+                // 不是插件就当作普通 APK 忽略；顺手记一笔，免得每次进页面都把同一个 APK 再拆一遍
+                if (!looksLikePlugin(apk)) {
+                    records += ScanRecord(apk.absolutePath, size, modified)
+                    return@forEach
+                }
+
+                runCatching { install(context, apk) }
+                    .onSuccess { plugin ->
+                        installed += plugin
+                        records += ScanRecord(apk.absolutePath, size, modified)
+                        Logger.info(TAG, "自动识别到插件 ${plugin.name}（${apk.name}）")
+                        // 投递目录里的原件装完即删，避免下次重复处理
+                        if (sourceIndex == 0) runCatching { apk.delete() }
+                    }
+                    .onFailure { e ->
+                        // 认出来了但装不上（清单坏了、路径越界…）：记录指纹，避免每次进页面都报同一件事
+                        records += ScanRecord(apk.absolutePath, size, modified)
+                        rejected += "${apk.name}：${e.message ?: "安装失败"}"
+                        Logger.warning(TAG, "自动识别插件失败：${apk.name}", e)
+                    }
+            }
+        }
+
+        writeScanRecords(root, records.takeLast(300))
+        return PluginScanResult(installed = installed, rejected = rejected)
+    }
+
+    /** 系统「下载」文件夹；拿不到（或没权限）就返回 null。 */
+    private fun downloadDir(): File? = runCatching {
+        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            .takeIf { it.isDirectory }
+    }.getOrNull()
+
+    /** APK 里带插件清单才算插件；这一步只是「认」，装不装得成由 [install] 判断。 */
+    private fun looksLikePlugin(apk: File): Boolean = runCatching {
+        ZipFile(apk).use { zip -> zip.getEntry(MANIFEST_ENTRY) != null }
+    }.getOrDefault(false)
+
+    private fun readScanRecords(root: File): List<ScanRecord> {
+        val file = File(root, SCAN_RECORD)
+        if (!file.isFile) return emptyList()
+        return runCatching {
+            gson.fromJson(file.readText(), Array<ScanRecord>::class.java)?.toList().orEmpty()
+        }.getOrDefault(emptyList())
+    }
+
+    private fun writeScanRecords(root: File, records: List<ScanRecord>) {
+        runCatching {
+            File(root, SCAN_RECORD).writeText(gson.toJson(records))
+        }.onFailure { Logger.warning(TAG, "写入自动识别记录失败", it) }
+    }
+
+    /**
+     * 安装（或升级）一个插件 APK（来自文件选择器 / 分享意图的 `content://`）。
      *
      * @throws IllegalStateException 格式不对、路径越界、命中黑名单时抛出，[message] 直接给用户看
      */
@@ -169,6 +292,25 @@ object ZlPluginManager {
         val input = context.contentResolver.openInputStream(uri)
             ?: throw IllegalStateException("读不到这个文件，换一个再试。")
         input.use { ins -> tempApk.outputStream().use { out -> ins.copyTo(out) } }
+
+        return installTemp(context, tempApk)
+    }
+
+    /**
+     * 安装（或升级）一个插件 APK（来自自动识别扫到的普通文件）。
+     *
+     * 只是把文件复制成临时副本，后续流程与 [install] 完全一致。
+     */
+    fun install(context: Context, apk: File): ZlPlugin {
+        val root = root(context).apply { mkdirs() }
+        val tempApk = File(root, "install.tmp").apply { runCatching { delete() } }
+        apk.copyTo(tempApk, overwrite = true)
+        return installTemp(context, tempApk)
+    }
+
+    /** 真正的安装流程；[tempApk] 是本管理器目录下的临时副本，结束时会被移走或删掉。 */
+    private fun installTemp(context: Context, tempApk: File): ZlPlugin {
+        val root = root(context).apply { mkdirs() }
 
         val archive = runCatching { ZipFile(tempApk) }.getOrElse {
             tempApk.delete()
