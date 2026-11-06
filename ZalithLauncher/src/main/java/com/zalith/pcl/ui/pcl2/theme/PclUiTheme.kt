@@ -86,6 +86,17 @@ data class PclGlassParams(
     val highlightAngle: Float = 45f,
     /** 高光边的宽度（dp）。太粗会像描边，0.8~1.6 之间最像玻璃。 */
     val highlightWidth: Float = 1.2f,
+    /**
+     * **光散射**强度（0..1）。
+     *
+     * 真实的玻璃不是「清晰 + 模糊」这么简单：光进入介质后会在内部被打散，
+     * 在玻璃表面上留下一层极淡的雾（frost / haze），靠近边缘更明显。
+     * 缺了这层雾，玻璃看起来像贴了一张模糊的图片，而不是一块材质。
+     *
+     * 这里在表面色之上叠一层很薄的白，配合 `blur()` 使用。
+     * 建议 0.06 ~ 0.16；再高就变成磨砂塑料了。
+     */
+    val haze: Float = 0f,
     /** 投影强度（0..1）。 */
     val shadow: Float = 0.10f,
     /** 背景提饱和度，玻璃看起来更透。 */
@@ -183,6 +194,7 @@ private data class GlassJson(
     @SerializedName("highlightStyle") val highlightStyle: String? = null,
     @SerializedName("highlightAngle") val highlightAngle: Float? = null,
     @SerializedName("highlightWidth") val highlightWidth: Float? = null,
+    @SerializedName("haze") val haze: Float? = null,
 )
 
 /** `ui.json` 的原始结构；字段全部可缺省，缺省即用默认值。 */
@@ -279,6 +291,7 @@ fun parsePclUiTheme(json: String, fallbackId: String = ""): PclUiTheme {
             highlightDirectional = raw.glass?.highlightStyle?.trim()?.lowercase() != "ambient",
             highlightAngle = raw.glass?.highlightAngle ?: 45f,
             highlightWidth = (raw.glass?.highlightWidth ?: 1.2f).coerceIn(0f, 4f),
+            haze = (raw.glass?.haze ?: 0f).coerceIn(0f, 0.5f),
             highlight = raw.glass?.highlight?.coerceIn(0f, 1f) ?: def.glass.highlight,
             shadow = raw.glass?.shadow?.coerceIn(0f, 1f) ?: def.glass.shadow,
             vibrancy = raw.glass?.vibrancy ?: def.glass.vibrancy,
@@ -405,7 +418,13 @@ fun Modifier.pclSurface(
 
     val roleStyle = theme.roles[role]
     val color = roleStyle?.color ?: colorOverride ?: theme.cardColor
-    val alpha = ((roleStyle?.alpha ?: theme.cardAlpha) * alphaScale).coerceIn(0f, 1f)
+    // 透明度优先级：roles 里写的 > 传进来的颜色自带的 > cardAlpha。
+    // 第三条是为了让调用方能按状态给不同厚度（比如胶囊的选中/未选中/禁用），
+    // 又不用在 ui.json 里写死一个值。
+    val alpha = (
+        (roleStyle?.alpha ?: colorOverride?.alpha?.takeIf { it < 1f } ?: theme.cardAlpha)
+            * alphaScale
+        ).coerceIn(0f, 1f)
     // 角色显式写了 `glass` 就按它；没写就退回 `scope` 那个总开关。
     // 这样插件可以精确到「按钮玻璃、输入框不动」。
     val wantGlass = roleStyle?.glass ?: theme.glassAllControls
@@ -492,6 +511,10 @@ fun Modifier.pclSurface(
             )
         },
         onDrawSurface = {
+            // 光散射：先铺一层极淡的白雾，再叠表面色。
+            // 顺序不能反 —— 雾是「介质里的散射光」，应该在颜色之下、背景之上。
+            val haze = theme.glass.haze
+            if (haze > 0f) drawRect(Color.White.copy(alpha = haze))
             if (alpha > 0f) drawRect(color.copy(alpha = alpha))
         },
     )

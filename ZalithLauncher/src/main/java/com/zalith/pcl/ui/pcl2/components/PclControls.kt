@@ -623,6 +623,36 @@ fun PclPillButton(
         }
     )
 
+    // ---- 玻璃态下必须换一套配色，否则「白玻璃 + 白字」等于没有字 ----
+    //
+    // PCL 原来的胶囊是「半透明白底 + 白字」，在蓝色标题栏上靠背景压暗才看得清。
+    // 一旦做成玻璃，vibrancy 会把背景提亮、模糊又把蓝色糊淡，白字直接糊进白玻璃里。
+    // 所以玻璃态改成「浅色玻璃 + 深色字」：对比度是靠**文字与玻璃之间**拉开的，
+    // 不能指望背景帮忙。
+    val glassPill = uiTheme != null &&
+            uiTheme.renderer == PclUiRenderer.Glass &&
+            uiTheme.glassEnabledFor("pill") &&
+            uiBackdrop != null
+    val pillSurface = if (glassPill) {
+        when {
+            !enabled -> Color.White.copy(alpha = 0.22f)
+            checked -> Color.White.copy(alpha = 0.94f)
+            active -> Color.White.copy(alpha = 0.72f)
+            else -> Color.White.copy(alpha = 0.55f)
+        }
+    } else {
+        background
+    }
+    val pillText = if (glassPill) {
+        when {
+            !enabled -> p.gray4
+            checked -> p.color2
+            else -> p.color1
+        }
+    } else {
+        contentColor
+    }
+
     val hasLogo = logo != null
     Row(
         modifier = modifier
@@ -634,8 +664,8 @@ fun PclPillButton(
                 backdrop = uiBackdrop,
                 shape = RoundedCornerShape(PclDimens.navPillCorner),
                 surface = PclSurface.Control,
-                fallbackColor = background,
-                colorOverride = background,
+                fallbackColor = pillSurface,
+                colorOverride = pillSurface,
                 role = "pill",
             )
             .clickable(enabled = enabled, interactionSource = interaction, indication = null, onClick = onClick)
@@ -655,7 +685,7 @@ fun PclPillButton(
             Icon(
                 imageVector = logo,
                 contentDescription = null,
-                tint = contentColor,
+                tint = pillText,
                 modifier = Modifier
                     .size(PclDimens.navPillLogoSize)
                     .graphicsLayer(scaleX = logoScale, scaleY = logoScale),
@@ -665,7 +695,7 @@ fun PclPillButton(
         Text(
             text = text,
             style = PclTextStyle.base(p).copy(
-                color = contentColor,
+                color = pillText,
                 fontSize = fontSize.sp,
                 lineHeight = PclTextStyle.lineHeight(fontSize),
             ),

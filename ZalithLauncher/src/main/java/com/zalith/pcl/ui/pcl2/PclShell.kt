@@ -653,12 +653,18 @@ private fun PclTitleBar(nav: PclNavController) {
     val titleBrush = remember(p.titleBarGradient) { Brush.horizontalGradient(p.titleBarGradient) }
     val uiTheme = LocalPclUiTheme.current
     val backdrop = LocalPclBackdrop.current
-    // 玻璃态下渐变要让一点透明度出来，否则玻璃被这层渐变完全盖住、等于没开。
-    // 保留蓝调是刻意的：标题栏的文字和图标全是白的，换成中性玻璃会看不清。
+    // 玻璃态下渐变只留很薄一层（0.42）。
+    // 原来是 0.78 —— 那等于在玻璃上又盖了四分之三的实色，玻璃只剩一点边，
+    // 所以顶栏看着「一点不像玻璃」。
+    // 保留蓝调是刻意的：标题栏的文字和图标全是白的，纯中性玻璃会看不清。
     val glassBrush = remember(p.titleBarGradient) {
-        Brush.horizontalGradient(p.titleBarGradient.map { it.copy(alpha = 0.78f) })
+        Brush.horizontalGradient(p.titleBarGradient.map { it.copy(alpha = 0.42f) })
     }
-    val glassTitle = uiTheme?.renderer == PclUiRenderer.Glass && (uiTheme.glass.panel)
+    val glassTitle = uiTheme != null &&
+            uiTheme.renderer == PclUiRenderer.Glass &&
+            uiTheme.glass.panel &&
+            backdrop != null &&
+            uiTheme.glassEnabledFor("panel")
 
     Box(
         modifier = Modifier
@@ -666,14 +672,19 @@ private fun PclTitleBar(nav: PclNavController) {
             .height(PclDimens.titleBarHeight)
             .then(
                 if (glassTitle) {
+                    // 顶栏是**一整块**玻璃：从左边距一直铺到右边距，含中间的胶囊区。
+                    // 颜色由玻璃自己承担（蓝色 tint），不再靠上面那层渐变遮出来 ——
+                    // 否则玻璃只是被压在下面的一层装饰。
+                    // 圆角 0 的矩形：`lens()` 只认 CornerBasedShape，直角能让折射
+                    // 沿整条上下边弯过去，这才是「一整块玻璃」的观感。
                     Modifier.pclSurface(
                         theme = uiTheme,
                         backdrop = backdrop,
-                        // 圆角 0 的矩形：lens 只认 CornerBasedShape
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(0.dp),
                         surface = PclSurface.Panel,
-                        fallbackColor = Color.Transparent,
-                        colorOverride = Color.Transparent,
+                        fallbackColor = p.titleBarGradient.first(),
+                        colorOverride = p.titleBarGradient.first().copy(alpha = 0.52f),
+                        role = "panel",
                     )
                 } else {
                     Modifier
