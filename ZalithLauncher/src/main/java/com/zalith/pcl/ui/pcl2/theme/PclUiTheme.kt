@@ -38,6 +38,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -405,8 +406,9 @@ fun Modifier.pclSurface(
     val roleStyle = theme.roles[role]
     val color = roleStyle?.color ?: colorOverride ?: theme.cardColor
     val alpha = ((roleStyle?.alpha ?: theme.cardAlpha) * alphaScale).coerceIn(0f, 1f)
-    // 角色显式关掉玻璃（或整体渲染器是 flat / 老系统 / 无底片）→ 老老实实填色
-    val wantGlass = roleStyle?.glass ?: true
+    // 角色显式写了 `glass` 就按它；没写就退回 `scope` 那个总开关。
+    // 这样插件可以精确到「按钮玻璃、输入框不动」。
+    val wantGlass = roleStyle?.glass ?: theme.glassAllControls
 
     if (!wantGlass || theme.renderer == PclUiRenderer.Flat) {
         return this.background(color.copy(alpha = alpha), shape)
@@ -488,6 +490,51 @@ fun Modifier.pclSurface(
     )
 }
 
+/**
+ * **拟态玻璃**：给「独立窗口」用的玻璃表面。
+ *
+ * 弹窗（`Dialog`）和下拉菜单（`Popup`）都跑在**另一个 Window** 里，
+ * `drawBackdrop` 取不到主窗口录制的底片（坐标体系都不一样），
+ * 所以真模糊在这里是做不出来的。
+ *
+ * 那就把玻璃最要紧的两件事手工画出来：
+ *   ① **0.5dp 的方向性镜面边**（上亮下暗）—— 玻璃之所以像玻璃，靠的就是这条边；
+ *   ② 轻微的投影，让它从底下的内容上浮起来。
+ *
+ * 填充用半透明白，叠在弹窗的 scrim 上会透出一点底下的颜色，接近磨砂玻璃的观感。
+ * 这不是真玻璃，但比一块 `#FBFBFB` 实色板要像得多。
+ */
+fun Modifier.pclFauxGlass(
+    theme: PclUiTheme?,
+    shape: Shape,
+    fillColor: Color = Color.White,
+    fillAlpha: Float = 0.86f,
+    shadowRadius: Dp = 16.dp,
+    rimAlpha: Float = 0.95f,
+): Modifier {
+    // 没装皮肤：保持 PCL 原本的实色
+    if (theme == null) return this.background(fillColor.copy(alpha = 1f), shape)
+    if (theme.renderer != PclUiRenderer.Glass) {
+        return this.background(fillColor.copy(alpha = theme.cardAlpha), shape)
+    }
+
+    // 镜面边：上亮下暗，这就是 HighlightStyle.Default(45°) 的手工版。
+    // 用 `Modifier.border(width, brush, shape)` 而不是自己 drawOutline ——
+    // 它对任意 Shape 都成立，Capsule / RoundedCornerShape 都吃。
+    val rim = androidx.compose.ui.graphics.Brush.verticalGradient(
+        listOf(
+            Color.White.copy(alpha = rimAlpha),
+            Color.White.copy(alpha = rimAlpha * 0.35f),
+            Color.White.copy(alpha = rimAlpha * 0.06f),
+        ),
+    )
+
+    return this
+        .shadow(elevation = shadowRadius, shape = shape, clip = false)
+        .background(fillColor.copy(alpha = fillAlpha), shape)
+        .border(width = 0.5.dp, brush = rim, shape = shape)
+}
+
 /** 皮肤表面 + PCL 描边：**装了皮肤就不画描边**（玻璃自带柔光边缘，再叠一圈线就成了塑料壳）。 */
 fun Modifier.pclSurfaceBordered(
     theme: PclUiTheme?,
@@ -528,6 +575,16 @@ fun PclUiTheme?.sidebarTint(): Color? {
 /** 皮肤覆盖的圆角；没写就用调用方给的默认值。 */
 fun PclUiTheme?.cornerOr(default: androidx.compose.ui.unit.Dp): androidx.compose.ui.unit.Dp =
     this?.corner?.dp ?: default
+
+/** 某个角色当前要不要玻璃（`roles` 里写了就听它的，否则听 `scope`）。 */
+fun PclUiTheme?.glassEnabledFor(role: String): Boolean {
+    val t = this ?: return false
+    t.roles[role]?.glass?.let { return it }
+    return t.glassAllControls
+}
+
+/** 某个角色的不透明度覆盖（没写就返回 null）。 */
+fun PclUiTheme?.roleAlpha(role: String): Float? = this?.roles?.get(role)?.alpha
 
 /** 皮肤覆盖的按钮圆角。 */
 fun PclUiTheme?.buttonCornerOr(default: androidx.compose.ui.unit.Dp): androidx.compose.ui.unit.Dp =

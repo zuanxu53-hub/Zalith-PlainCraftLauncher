@@ -89,6 +89,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -135,6 +136,9 @@ import com.zalith.pcl.ui.pcl2.theme.PclSurface
 import com.zalith.pcl.ui.pcl2.theme.cornerOr
 import com.zalith.pcl.ui.pcl2.theme.buttonCornerOr
 import com.zalith.pcl.ui.pcl2.theme.pclSurface
+import com.zalith.pcl.ui.pcl2.theme.glassEnabledFor
+import com.zalith.pcl.ui.pcl2.theme.roleAlpha
+import com.zalith.pcl.ui.pcl2.theme.pclFauxGlass
 import com.zalith.pcl.ui.pcl2.theme.pclSurfaceBordered
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.graphics.graphicsLayer
@@ -359,28 +363,23 @@ fun PclButton(
     // 玻璃渲染器 + 有底片：交给移植来的液态按钮表面（按压回弹、朝手指形变、高光跟随）。
     // 其余情况（flat 皮肤 / 老系统 / 没装皮肤）还是 PCL 原来的实心按钮。
     if (uiTheme != null && uiTheme.renderer == PclUiRenderer.Glass &&
-        uiTheme.glassAllControls && uiBackdrop != null
+        uiTheme.glassEnabledFor("button") && uiBackdrop != null
     ) {
-        val glass = uiTheme.glass
         PclLiquidButtonSurface(
             backdrop = uiBackdrop,
+            // 圆角给足 = 胶囊：源码写死 Capsule()，液态玻璃的按钮就是这个形状
             shape = RoundedCornerShape(uiTheme.buttonCornerOr(PclDimens.buttonCorner)),
             modifier = modifier,
             enabled = enabled,
             minHeight = height,
             contentPadding = contentPadding,
-            tint = backgroundColor,
-            tintAlpha = (uiTheme.cardAlpha * 0.85f).coerceIn(0f, 1f),
-            borderColor = borderColor,
-            // 玻璃态不画 PCL 的 1dp 描边
-            borderWidth = 0.dp,
+            // PCL 的按钮底色本身很浅（高亮态也是白底 + 彩字），
+            // 所以玻璃表面只叠一层很薄的白；不会盖掉状态色，也不会糊成实心块。
+            // 透明度由 ui.json 的 `roles.button.alpha` 说了算；禁用态再压一半。
+            surfaceColor = Color.White.copy(
+                alpha = (uiTheme.roleAlpha("button") ?: 0.18f) * (if (enabled) 1f else 0.5f),
+            ),
             textCenter = uiTheme.buttonTextCenter,
-            highlightAlpha = glass.highlight,
-            blurRadius = (glass.blur * 0.55f).dp,
-            refractionHeight = (glass.refractionHeight * 0.55f).dp,
-            refraction = (glass.refraction * 0.55f).dp,
-            shadowAlpha = glass.shadow,
-            vibrancyEnabled = glass.vibrancy,
             onClick = onClick,
         ) {
             if (logo != null) {
@@ -631,7 +630,7 @@ fun PclPillButton(
             // 万一字号/行高比 27 大，胶囊就自己长高，而不是把文字下半截裁掉。
             .heightIn(min = PclDimens.navPillHeight)
             .pclSurface(
-                theme = uiTheme?.takeIf { it.glassAllControls },
+                theme = uiTheme,
                 backdrop = uiBackdrop,
                 shape = RoundedCornerShape(PclDimens.navPillCorner),
                 surface = PclSurface.Control,
@@ -737,7 +736,7 @@ fun PclIconTextButton(
         modifier = modifier
             .heightIn(min = height)
             .pclSurfaceBordered(
-                theme = uiTheme?.takeIf { it.glassAllControls },
+                theme = uiTheme,
                 backdrop = uiBackdrop,
                 shape = RoundedCornerShape(uiTheme.buttonCornerOr(PclDimens.buttonCorner)),
                 surface = PclSurface.Control,
@@ -1328,7 +1327,7 @@ fun PclListItem(
             )
             .pclSurfaceBordered(
                 // 只给卡片上玻璃时，列表项保持 PCL 原样（颜色/描边/选中态都不动）
-                theme = uiTheme?.takeIf { it.glassAllControls },
+                theme = uiTheme,
                 backdrop = uiBackdrop,
                 shape = RoundedCornerShape(corner),
                 surface = PclSurface.Control,
@@ -1540,7 +1539,7 @@ fun PclCheckBox(
             modifier = Modifier
                 .size(PclDimens.checkBoxSize)
                 .pclSurfaceBordered(
-                    theme = uiTheme?.takeIf { it.glassAllControls },
+                    theme = uiTheme,
                     backdrop = uiBackdrop,
                     shape = RoundedCornerShape(PclDimens.checkBoxCorner),
                     surface = PclSurface.Control,
@@ -1618,7 +1617,7 @@ fun PclRadioBox(
                 modifier = Modifier
                     .size(PclDimens.radioBoxSize)
                     .pclSurfaceBordered(
-                        theme = uiTheme?.takeIf { it.glassAllControls },
+                        theme = uiTheme,
                         backdrop = uiBackdrop,
                         shape = CircleShape,
                         surface = PclSurface.Control,
@@ -1780,7 +1779,9 @@ fun PclSlider(
     val uiBackdrop = LocalPclBackdrop.current
     // 液态滑条默认**不启用**：那个组件的手势和外面的 verticalScroll 抢事件，
     // 实测「按下去拖不动」。插件想试可以在 ui.json 里写 `"slider": {"liquid": true}`。
-    if (uiTheme?.sliderLiquid == true && uiBackdrop != null && enabled) {
+    if (uiTheme?.sliderLiquid == true && uiBackdrop != null && enabled &&
+        uiTheme.glassEnabledFor("slider")
+    ) {
         LiquidSlider(
             value = { value.coerceIn(0f, 1f) },
             onValueChange = onValueChange,
@@ -1807,13 +1808,13 @@ fun PclSlider(
     Canvas(
         modifier = modifier
             .fillMaxWidth()
-            .height(16.dp)
+            .height(26.dp)
             .then(
-                if (uiTheme?.glassAllControls == true) {
+                if (uiTheme.glassEnabledFor("slider")) {
                     Modifier.pclSurface(
                         theme = uiTheme,
                         backdrop = uiBackdrop,
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(13.dp),
                         surface = PclSurface.Control,
                         fallbackColor = Color.Transparent,
                         alphaScale = 0.75f,
@@ -1846,25 +1847,65 @@ fun PclSlider(
     ) {
         val cy = size.height / 2f
         val v = value.coerceIn(0f, 1f)
-        drawLine(
-            color = p.bg0.copy(alpha = 0.3f),
-            start = Offset(0f, cy),
-            end = Offset(size.width, cy),
-            strokeWidth = 1.dp.toPx(),
+
+        // ---- 液态滑条的样子（参照源码 LiquidSlider 的观感）：
+        // 粗胶囊轨道 + 整条高亮 + 一个明显大于轨道的大胶囊滑块。
+        // 和源码的 LiquidSlider 相比只少了「拖拽阻尼形变」—— 那个组件的手势会和页面
+        // 的 verticalScroll 抢事件导致拖不动，所以手势仍用 PCL 自己的 pointerInput。
+        val trackH = 8.dp.toPx()
+        val trackR = trackH / 2f
+
+        // 轨道底：半透明白，玻璃态下会透出背后的渐变
+        drawRoundRect(
+            color = Color.White.copy(alpha = 0.55f),
+            topLeft = Offset(0f, cy - trackR),
+            size = Size(size.width, trackH),
+            cornerRadius = CornerRadius(trackR, trackR),
         )
-        drawLine(
-            color = activeColor,
-            start = Offset(0f, cy),
-            end = Offset(size.width * v, cy),
-            strokeWidth = 2.dp.toPx(),
+        // 轨道底再加一道极淡的内描边，否则纯白轨道在浅背景上会「消失」
+        drawRoundRect(
+            color = p.color1.copy(alpha = 0.10f),
+            topLeft = Offset(0f, cy - trackR),
+            size = Size(size.width, trackH),
+            cornerRadius = CornerRadius(trackR, trackR),
+            style = Stroke(width = 0.5.dp.toPx()),
         )
-        val dot = 5.dp.toPx() * dotScaleState.value
-        drawCircle(color = p.bg0, radius = dot, center = Offset(size.width * v, cy))
-        drawCircle(
-            color = activeColor,
-            radius = dot,
-            center = Offset(size.width * v, cy),
-            style = Stroke(width = 1.2.dp.toPx()),
+
+        // 已走过的一段
+        val thumbW = 34.dp.toPx()
+        val thumbH = 20.dp.toPx()
+        val thumbX = (size.width * v).coerceIn(trackR, size.width - trackR)
+        if (thumbX > 0f) {
+            drawRoundRect(
+                color = activeColor,
+                topLeft = Offset(0f, cy - trackR),
+                size = Size(thumbX, trackH),
+                cornerRadius = CornerRadius(trackR, trackR),
+            )
+        }
+
+        // 滑块：白色大胶囊 + 投影 + 一圈镜面高光，和源码里的液态滑块一个语言
+        val scale = dotScaleState.value
+        val w = thumbW * scale
+        val h = thumbH * scale
+        drawRoundRect(
+            color = Color.Black.copy(alpha = 0.10f),
+            topLeft = Offset(thumbX - w / 2f, cy - h / 2f + 1.5.dp.toPx()),
+            size = Size(w, h),
+            cornerRadius = CornerRadius(h / 2f, h / 2f),
+        )
+        drawRoundRect(
+            color = Color.White,
+            topLeft = Offset(thumbX - w / 2f, cy - h / 2f),
+            size = Size(w, h),
+            cornerRadius = CornerRadius(h / 2f, h / 2f),
+        )
+        drawRoundRect(
+            color = Color.White.copy(alpha = 0.9f),
+            topLeft = Offset(thumbX - w / 2f, cy - h / 2f),
+            size = Size(w, h),
+            cornerRadius = CornerRadius(h / 2f, h / 2f),
+            style = Stroke(width = 0.6.dp.toPx()),
         )
     }
 }
@@ -1893,7 +1934,7 @@ fun PclTextBox(
         modifier = modifier
             .height(28.dp)
             .pclSurfaceBordered(
-                theme = uiTheme?.takeIf { it.glassAllControls },
+                theme = uiTheme,
                 backdrop = uiBackdrop,
                 shape = RoundedCornerShape(3.dp),
                 surface = PclSurface.Control,
@@ -2110,7 +2151,7 @@ fun <T> PclComboBox(
                 .fillMaxWidth()
                 .heightIn(min = height)
                 .pclSurfaceBordered(
-                    theme = uiTheme?.takeIf { it.glassAllControls },
+                    theme = uiTheme,
                     backdrop = uiBackdrop,
                     shape = RoundedCornerShape(3.dp),
                     surface = PclSurface.Control,
@@ -2238,12 +2279,28 @@ internal fun PclComboBoxPopup(
         //   · 行高与字号也按别处的密度走，「界面缩放」对弹层形同虚设。
         // 把调用点的 density 带进去，弹层的每一个 dp 都和触发器、和整页 UI 同尺。
         CompositionLocalProvider(LocalDensity provides density) {
+            // 弹层也是独立 Window：拿不到主窗口的底片，用拟态玻璃
+            // （半透明白 + 0.5dp 方向性镜面边 + 投影）。装了皮肤就不再画 PCL 的 1dp 描边。
+            val popupTheme = LocalPclUiTheme.current
             Box(
                 modifier = Modifier
                     .width(anchorWidth)
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(Color.White)
-                    .border(pclHairline(), borderColor, RoundedCornerShape(3.dp)),
+                    .then(
+                        if (popupTheme?.renderer == PclUiRenderer.Glass) {
+                            Modifier.pclFauxGlass(
+                                theme = popupTheme,
+                                shape = RoundedCornerShape(10.dp),
+                                fillColor = Color.White,
+                                fillAlpha = 0.90f,
+                                shadowRadius = 14.dp,
+                            )
+                        } else {
+                            Modifier
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(Color.White)
+                                .border(pclHairline(), borderColor, RoundedCornerShape(3.dp))
+                        }
+                    ),
             ) {
                 Column(
                     modifier = Modifier

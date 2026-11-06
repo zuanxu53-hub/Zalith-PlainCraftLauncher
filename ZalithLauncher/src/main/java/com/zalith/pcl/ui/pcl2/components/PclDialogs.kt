@@ -71,6 +71,8 @@ import com.zalith.pcl.game.plugin.renderer_v2.data.EnvSettingUnit
 import com.zalith.pcl.ui.pcl2.theme.LocalPclBackdrop
 import com.zalith.pcl.ui.pcl2.theme.LocalPclUiTheme
 import com.zalith.pcl.ui.pcl2.theme.PclDimens
+import com.zalith.pcl.ui.pcl2.theme.PclUiRenderer
+import com.zalith.pcl.ui.pcl2.theme.pclFauxGlass
 import com.zalith.pcl.ui.pcl2.theme.PclEase
 import com.zalith.pcl.ui.pcl2.theme.PclTextStyle
 import com.zalith.pcl.ui.pcl2.theme.pclPalette
@@ -246,9 +248,10 @@ internal fun PclDialogContainer(
         ) {
             // 弹窗是**另一个窗口**：皮肤参数与背景底片的坐标都对不上，在这里取只会拿到错位的一块。
             // 所以弹窗里一律关掉皮肤，按钮/胶囊照旧用 PCL 的实色。
+            // 底片必须置空（另一个窗口，坐标对不上）；但主题要留着 ——
+            // 弹窗用的是「拟态玻璃」，不依赖底片，只需要知道 renderer 是不是 glass。
             CompositionLocalProvider(
                 LocalDensity provides density,
-                LocalPclUiTheme provides null,
                 LocalPclBackdrop provides null,
             ) {
                 PclDialogHost(
@@ -292,7 +295,20 @@ private fun PclMsgFrame(
                 spotColor = p.color1.copy(alpha = 0.8f),
             )
             .clip(RoundedCornerShape(PclDimens.msgCorner))
-            .background(MsgBackground),
+            // 弹窗是独立 Window，真模糊取不到底片 —— 用拟态玻璃（半透明白 + 镜面边）
+            .then(
+                if (LocalPclUiTheme.current?.renderer == PclUiRenderer.Glass) {
+                    Modifier.pclFauxGlass(
+                        theme = LocalPclUiTheme.current,
+                        shape = RoundedCornerShape(PclDimens.msgCorner),
+                        fillColor = MsgBackground,
+                        fillAlpha = 0.88f,
+                        shadowRadius = 20.dp,
+                    )
+                } else {
+                    Modifier.background(MsgBackground)
+                }
+            ),
     ) {
         // PanMain Margin="22,22,22,23"
         Column(
