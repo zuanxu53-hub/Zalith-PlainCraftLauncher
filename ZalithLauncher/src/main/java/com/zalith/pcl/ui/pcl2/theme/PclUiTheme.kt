@@ -142,6 +142,15 @@ data class PclUiTheme(
     val sliderLiquid: Boolean = false,
     /** 按钮文字是否强制居中；PCL 原本就是居中，玻璃外壳容易丢，默认开。 */
     val buttonTextCenter: Boolean = true,
+    /**
+     * 玻璃的覆盖范围：
+     * - `cards`（默认）只给卡片 / 标题栏 / 侧栏上玻璃，按钮、输入框、列表保持 PCL 原样；
+     * - `all` 连按钮与输入框一起玻璃化。
+     *
+     * 默认保守是有代价的：全量玻璃化会与 PCL 自带的状态色、描边、禁用态打架，
+     * 出现「深色块、文字看不清、控件像消失」这类问题，而卡片这一层最安全。
+     */
+    val glassAllControls: Boolean = false,
 )
 
 /* ---------------------------------------------------------------- 解析 */
@@ -197,6 +206,7 @@ private data class ThemeJson(
     @SerializedName("palette") val palette: String? = null,
     @SerializedName("slider") val slider: SliderJson? = null,
     @SerializedName("button") val button: ButtonJson? = null,
+    @SerializedName("scope") val scope: String? = null,
 )
 
 private val themeGson: Gson = Gson()
@@ -245,6 +255,7 @@ fun parsePclUiTheme(json: String, fallbackId: String = ""): PclUiTheme {
         neutralPalette = raw.palette?.trim()?.lowercase() == "neutral",
         sliderLiquid = raw.slider?.liquid ?: false,
         buttonTextCenter = raw.button?.textAlign?.trim()?.lowercase() != "start",
+        glassAllControls = raw.scope?.trim()?.lowercase() == "all",
         glass = PclGlassParams(
             blur = raw.glass?.blur?.coerceIn(0f, 40f) ?: def.glass.blur,
             refraction = raw.glass?.refraction?.coerceIn(0f, 80f) ?: def.glass.refraction,

@@ -358,7 +358,9 @@ fun PclButton(
 
     // 玻璃渲染器 + 有底片：交给移植来的液态按钮表面（按压回弹、朝手指形变、高光跟随）。
     // 其余情况（flat 皮肤 / 老系统 / 没装皮肤）还是 PCL 原来的实心按钮。
-    if (uiTheme != null && uiTheme.renderer == PclUiRenderer.Glass && uiBackdrop != null) {
+    if (uiTheme != null && uiTheme.renderer == PclUiRenderer.Glass &&
+        uiTheme.glassAllControls && uiBackdrop != null
+    ) {
         val glass = uiTheme.glass
         PclLiquidButtonSurface(
             backdrop = uiBackdrop,
@@ -629,7 +631,7 @@ fun PclPillButton(
             // 万一字号/行高比 27 大，胶囊就自己长高，而不是把文字下半截裁掉。
             .heightIn(min = PclDimens.navPillHeight)
             .pclSurface(
-                theme = uiTheme,
+                theme = uiTheme?.takeIf { it.glassAllControls },
                 backdrop = uiBackdrop,
                 shape = RoundedCornerShape(PclDimens.navPillCorner),
                 surface = PclSurface.Control,
@@ -735,7 +737,7 @@ fun PclIconTextButton(
         modifier = modifier
             .heightIn(min = height)
             .pclSurfaceBordered(
-                theme = uiTheme,
+                theme = uiTheme?.takeIf { it.glassAllControls },
                 backdrop = uiBackdrop,
                 shape = RoundedCornerShape(uiTheme.buttonCornerOr(PclDimens.buttonCorner)),
                 surface = PclSurface.Control,
@@ -1325,7 +1327,8 @@ fun PclListItem(
                 },
             )
             .pclSurfaceBordered(
-                theme = uiTheme,
+                // 只给卡片上玻璃时，列表项保持 PCL 原样（颜色/描边/选中态都不动）
+                theme = uiTheme?.takeIf { it.glassAllControls },
                 backdrop = uiBackdrop,
                 shape = RoundedCornerShape(corner),
                 surface = PclSurface.Control,
@@ -1537,7 +1540,7 @@ fun PclCheckBox(
             modifier = Modifier
                 .size(PclDimens.checkBoxSize)
                 .pclSurfaceBordered(
-                    theme = uiTheme,
+                    theme = uiTheme?.takeIf { it.glassAllControls },
                     backdrop = uiBackdrop,
                     shape = RoundedCornerShape(PclDimens.checkBoxCorner),
                     surface = PclSurface.Control,
@@ -1615,7 +1618,7 @@ fun PclRadioBox(
                 modifier = Modifier
                     .size(PclDimens.radioBoxSize)
                     .pclSurfaceBordered(
-                        theme = uiTheme,
+                        theme = uiTheme?.takeIf { it.glassAllControls },
                         backdrop = uiBackdrop,
                         shape = CircleShape,
                         surface = PclSurface.Control,
@@ -1806,7 +1809,7 @@ fun PclSlider(
             .fillMaxWidth()
             .height(16.dp)
             .then(
-                if (uiTheme != null) {
+                if (uiTheme?.glassAllControls == true) {
                     Modifier.pclSurface(
                         theme = uiTheme,
                         backdrop = uiBackdrop,
@@ -1890,7 +1893,7 @@ fun PclTextBox(
         modifier = modifier
             .height(28.dp)
             .pclSurfaceBordered(
-                theme = uiTheme,
+                theme = uiTheme?.takeIf { it.glassAllControls },
                 backdrop = uiBackdrop,
                 shape = RoundedCornerShape(3.dp),
                 surface = PclSurface.Control,
@@ -2107,7 +2110,7 @@ fun <T> PclComboBox(
                 .fillMaxWidth()
                 .heightIn(min = height)
                 .pclSurfaceBordered(
-                    theme = uiTheme,
+                    theme = uiTheme?.takeIf { it.glassAllControls },
                     backdrop = uiBackdrop,
                     shape = RoundedCornerShape(3.dp),
                     surface = PclSurface.Control,
