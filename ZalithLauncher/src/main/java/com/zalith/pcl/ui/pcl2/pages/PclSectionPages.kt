@@ -2477,11 +2477,7 @@ internal fun startModpackImport(
     val context: android.content.Context = runtime.activity
     val title = "安装整合包：${version.platformDisplayName()}"
     // 专用目录，与 `temp_modpack` 平级 —— 导入器清缓存时不会波及这里。
-    //
-    // 放在**应用私有目录**而不是 cache：cache 目录会被系统在存储紧张时清理，
-    // 而一个整合包动辄上百 MB、下载完还要解压，正是最容易被清掉的时候。
-    // 表现就是「明明下载完了，导入却报 FileNotFoundException / ENOENT」。
-    val outDir = File(context.filesDir, "modpack_import").apply { mkdirs() }
+    val outDir = File(PathManager.DIR_CACHE, "pcl2_modpack_import").apply { mkdirs() }
     val output = File(outDir, version.platformFileName())
     // 上一次没清理干净的残留（比如进程被杀），先删掉，免得下载引擎发现同名文件而跳过。
     runCatching { if (output.isFile) output.delete() }
@@ -2544,17 +2540,6 @@ internal fun startModpackImport(
                 }
                 return@submitTask
             }
-            // 再确认一次文件真的在：下载引擎返回成功不代表文件还在（存储被清、被杀软删掉）。
-            // 不检查的话，导入器那边会抛一个只有路径的 FileNotFoundException，用户看不懂。
-            if (!output.isFile || output.length() <= 0L) {
-                runtime.clearModpackImport(importId)
-                runtime.submitErrorText(
-                    "整合包下载失败",
-                    "下载好的整合包文件不见了（可能是存储空间不足或被系统清理），请重试一次。",
-                )
-                return@submitTask
-            }
-
             // 包已经落地，接下来直接交给导入器，不需要用户再点任何东西。
             // 这条提示同时也是「下载完会自动装」的可见凭据 —— 用户切到别的版块时也能看到。
             PclHintHost.push("整合包下载完成，开始自动安装。", PclHintTheme.Blue)
