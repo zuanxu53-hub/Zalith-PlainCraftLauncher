@@ -68,6 +68,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.zalith.pcl.game.plugin.renderer_v2.data.EnvSettingUnit
+import com.zalith.pcl.ui.pcl2.theme.LocalPclBackdrop
+import com.zalith.pcl.ui.pcl2.theme.LocalPclUiTheme
 import com.zalith.pcl.ui.pcl2.theme.PclDimens
 import com.zalith.pcl.ui.pcl2.theme.PclEase
 import com.zalith.pcl.ui.pcl2.theme.PclTextStyle
@@ -242,7 +244,13 @@ internal fun PclDialogContainer(
             },
             properties = DialogProperties(usePlatformDefaultWidth = false),
         ) {
-            CompositionLocalProvider(LocalDensity provides density) {
+            // 弹窗是**另一个窗口**：皮肤参数与背景底片的坐标都对不上，在这里取只会拿到错位的一块。
+            // 所以弹窗里一律关掉皮肤，按钮/胶囊照旧用 PCL 的实色。
+            CompositionLocalProvider(
+                LocalDensity provides density,
+                LocalPclUiTheme provides null,
+                LocalPclBackdrop provides null,
+            ) {
                 PclDialogHost(
                     exiting = exiting,
                     onExitFinished = {

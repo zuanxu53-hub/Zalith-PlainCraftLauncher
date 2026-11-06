@@ -321,6 +321,7 @@ dependencies {
     implementation(libs.maven.artifact)
     implementation(libs.mmkv)
     implementation(libs.fishnet)
+    implementation(libs.backdrop)
     implementation(libs.process.phoenix)
     implementation(libs.lunarcalendar)
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar", "*.aar"))))

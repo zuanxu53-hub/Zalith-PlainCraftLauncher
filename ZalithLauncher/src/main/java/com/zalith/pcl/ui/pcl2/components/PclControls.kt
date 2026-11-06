@@ -129,6 +129,12 @@ import com.zalith.pcl.ui.pcl2.theme.PclDimens
 import com.zalith.pcl.ui.pcl2.theme.PclEase
 import com.zalith.pcl.ui.pcl2.theme.PclMotion
 import com.zalith.pcl.ui.pcl2.theme.PclTextStyle
+import com.zalith.pcl.ui.pcl2.theme.LocalPclBackdrop
+import com.zalith.pcl.ui.pcl2.theme.LocalPclUiTheme
+import com.zalith.pcl.ui.pcl2.theme.PclSurface
+import com.zalith.pcl.ui.pcl2.theme.cornerOr
+import com.zalith.pcl.ui.pcl2.theme.buttonCornerOr
+import com.zalith.pcl.ui.pcl2.theme.pclSurface
 import com.zalith.pcl.ui.pcl2.theme.pclPalette
 import com.zalith.pcl.ui.pcl2.theme.pclHairline
 import kotlinx.coroutines.coroutineScope
@@ -315,6 +321,8 @@ fun PclButton(
     onClick: () -> Unit,
 ) {
     val p = pclPalette
+    val uiTheme = LocalPclUiTheme.current
+    val uiBackdrop = LocalPclBackdrop.current
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val pressed by interaction.collectIsPressedAsState()
@@ -346,8 +354,24 @@ fun PclButton(
         modifier = modifier
             .pclPressScale(pressed)
             .heightIn(min = height)
-            .clip(RoundedCornerShape(PclDimens.buttonCorner))
-            .background(backgroundColor)
+            .then(
+                if (uiTheme != null) {
+                    // 按钮保留自己的状态色（普通/高亮/危险），只把「表面」交给主题画
+                    Modifier.pclSurface(
+                        theme = uiTheme,
+                        backdrop = uiBackdrop,
+                        shape = RoundedCornerShape(uiTheme.buttonCornerOr(PclDimens.buttonCorner)),
+                        surface = PclSurface.Control,
+                        fallbackColor = backgroundColor,
+                        colorOverride = backgroundColor,
+                        alphaScale = 0.85f,
+                    )
+                } else {
+                    Modifier
+                        .clip(RoundedCornerShape(PclDimens.buttonCorner))
+                        .background(backgroundColor)
+                }
+            )
             .border(pclHairline(), borderColor, RoundedCornerShape(PclDimens.buttonCorner))
             .clickable(enabled = enabled, interactionSource = interaction, indication = null, onClick = onClick)
             .padding(contentPadding),
@@ -736,6 +760,8 @@ fun PclCard(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val p = pclPalette
+    val uiTheme = LocalPclUiTheme.current
+    val uiBackdrop = LocalPclBackdrop.current
     val slotShift = with(LocalDensity.current) { 6.dp.roundToPx() }
     val (interaction, active) = rememberInteraction()
     var innerCollapsed by remember { mutableStateOf(initiallyCollapsed) }
@@ -779,14 +805,29 @@ fun PclCard(
             .then(
                 if (title != null) Modifier.heightIn(min = PclDimens.cardCollapsedHeight) else Modifier,
             )
-            .shadow(
-                elevation = 3.dp,
-                shape = RoundedCornerShape(PclDimens.cardCorner),
-                ambientColor = shadowColor.copy(alpha = shadowAlpha),
-                spotColor = shadowColor.copy(alpha = shadowAlpha),
+            // 装了皮肤插件就交给主题画（圆角/底色/阴影/高光都由它一次画完），
+            // 否则照旧用 PCL 的白卡片 —— 两者不能叠加，白色的底会把玻璃盖死。
+            .then(
+                if (uiTheme != null) {
+                    Modifier.pclSurface(
+                        theme = uiTheme,
+                        backdrop = uiBackdrop,
+                        shape = RoundedCornerShape(uiTheme.cornerOr(PclDimens.cardCorner)),
+                        surface = PclSurface.Card,
+                        fallbackColor = p.cardBackground,
+                    )
+                } else {
+                    Modifier
+                        .shadow(
+                            elevation = 3.dp,
+                            shape = RoundedCornerShape(PclDimens.cardCorner),
+                            ambientColor = shadowColor.copy(alpha = shadowAlpha),
+                            spotColor = shadowColor.copy(alpha = shadowAlpha),
+                        )
+                        .clip(RoundedCornerShape(PclDimens.cardCorner))
+                        .background(p.cardBackground)
+                }
             )
-            .clip(RoundedCornerShape(PclDimens.cardCorner))
-            .background(p.cardBackground)
             .then(
                 if (collapsible) {
                     Modifier.clickable(interactionSource = interaction, indication = null) { toggle() }
@@ -1033,11 +1074,26 @@ fun PclHint(
         }
     }
     val p = pclPalette
+    val uiTheme = LocalPclUiTheme.current
+    val uiBackdrop = LocalPclBackdrop.current
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(2.dp))
-            .background(background)
+            .then(
+                if (uiTheme != null) {
+                    Modifier.pclSurface(
+                        theme = uiTheme,
+                        backdrop = uiBackdrop,
+                        shape = RoundedCornerShape(2.dp),
+                        surface = PclSurface.Control,
+                        fallbackColor = background,
+                        colorOverride = background,
+                        alphaScale = 0.9f,
+                    )
+                } else {
+                    Modifier.clip(RoundedCornerShape(2.dp)).background(background)
+                }
+            )
             .drawBehind {
                 drawRect(color = border, size = Size(3.dp.toPx(), size.height))
             }
