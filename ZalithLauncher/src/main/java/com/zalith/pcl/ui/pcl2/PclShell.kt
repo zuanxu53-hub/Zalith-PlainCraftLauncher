@@ -529,11 +529,16 @@ private fun PclMainContent(
                         modifier = Modifier
                             .matchParentSize()
                             .drawWithCache {
+                                // 底子必须**足够亮**。上一版把底压到 #A9BED6、还叠了一块
+                                // alpha 0.7 的深蓝，结果所有玻璃都从它上面取模糊 ——
+                                // 玻璃被染成灰蓝，整页灰蒙蒙（侧栏、版本列表全变灰块）。
+                                // 玻璃的颜色本来就等于「身后颜色的模糊版」，所以浅色界面
+                                // 的背景必须浅，靠**亮度的细微起伏**提供折射，而不是靠深色。
                                 val base = androidx.compose.ui.graphics.Brush.linearGradient(
                                     colorStops = arrayOf(
-                                        0f to androidx.compose.ui.graphics.Color(0xFFF4F8FD),
-                                        0.42f to androidx.compose.ui.graphics.Color(0xFFD7E3F2),
-                                        1f to androidx.compose.ui.graphics.Color(0xFFA9BED6),
+                                        0f to androidx.compose.ui.graphics.Color(0xFFFBFDFF),
+                                        0.42f to androidx.compose.ui.graphics.Color(0xFFEEF4FB),
+                                        1f to androidx.compose.ui.graphics.Color(0xFFE2EBF7),
                                     ),
                                     start = androidx.compose.ui.geometry.Offset(0f, 0f),
                                     end = androidx.compose.ui.geometry.Offset(size.width * 0.35f, size.height),
@@ -542,7 +547,7 @@ private fun PclMainContent(
                                     drawRect(brush = base, size = size)
                                     // ① 左上大片高光：给卡片的镜面边提供「亮的一侧」
                                     drawCircle(
-                                        color = androidx.compose.ui.graphics.Color(0xE6FFFFFF),
+                                        color = androidx.compose.ui.graphics.Color(0xF2FFFFFF),
                                         radius = size.minDimension * 0.62f,
                                         center = androidx.compose.ui.geometry.Offset(
                                             size.width * 0.12f,
@@ -551,7 +556,7 @@ private fun PclMainContent(
                                     )
                                     // ② 右侧深蓝：给折射提供「暗的一侧」，弯折才看得出来
                                     drawCircle(
-                                        color = androidx.compose.ui.graphics.Color(0xB34A6E9C),
+                                        color = androidx.compose.ui.graphics.Color(0x4D7FA8CE),
                                         radius = size.minDimension * 0.52f,
                                         center = androidx.compose.ui.geometry.Offset(
                                             size.width * 0.92f,
@@ -560,7 +565,7 @@ private fun PclMainContent(
                                     )
                                     // ③ 左下青色：色散（边缘泛彩）的参考色，也让画面不闷
                                     drawCircle(
-                                        color = androidx.compose.ui.graphics.Color(0x9987C3D2),
+                                        color = androidx.compose.ui.graphics.Color(0x3DA8CEDD),
                                         radius = size.minDimension * 0.40f,
                                         center = androidx.compose.ui.geometry.Offset(
                                             size.width * 0.22f,

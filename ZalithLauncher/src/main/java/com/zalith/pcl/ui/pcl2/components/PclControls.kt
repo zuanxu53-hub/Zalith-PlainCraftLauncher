@@ -1325,17 +1325,15 @@ fun PclListItem(
                     Modifier
                 },
             )
-            .pclSurfaceBordered(
-                // 只给卡片上玻璃时，列表项保持 PCL 原样（颜色/描边/选中态都不动）
-                theme = uiTheme,
-                backdrop = uiBackdrop,
-                shape = RoundedCornerShape(corner),
-                surface = PclSurface.Control,
-                fillColor = background,
-                borderColor = borderColor,
-                borderWidth = pclHairline(),
-                role = "item",
-            )
+            // **列表项一律不做玻璃，硬编码，不受任何配置影响。**
+            //
+            // 原因：列表项自己几乎没有底色（未激活时是 Transparent），玻璃会直接取
+            // 身后的窗体背景来做模糊 —— 背景是深色时，条目就变成一块深灰，白字看不清。
+            // 侧栏、版本列表、设置项全是这个控件，一旦变灰整页就毁了。
+            // 这里保持 PCL 原本的 `clip + background + border`，不做任何主题替换。
+            .clip(RoundedCornerShape(corner))
+            .background(background)
+            .border(pclHairline(), borderColor, RoundedCornerShape(corner))
             .then(
                 if (clickable) {
                     Modifier.clickable(
