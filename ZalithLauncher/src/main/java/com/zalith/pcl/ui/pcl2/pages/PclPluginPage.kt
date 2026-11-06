@@ -144,7 +144,8 @@ fun PclPluginPanel() {
                 )
                 Spacer(Modifier.height(10.dp))
                 PclText(
-                    text = "不需要手动选文件。把插件 APK 放到下面任意一个位置，进入本页就会自动认出来并装好：\n" +
+                    text = "不需要手动选文件。插件 APK 只要在下面任意一个位置，进入本页就会自动认出来并装好：\n" +
+                            "· 已经装成应用的插件（最常见：点 APK 装完之后，安装包删了也认）\n" +
                             "· 系统「下载」文件夹 —— 下载完直接回来就行\n" +
                             "· 插件根目录 `plugins/`（散装 .apk）\n" +
                             "· 投递目录 `plugins/incoming/` —— 装完会把原件清掉",
@@ -164,6 +165,17 @@ fun PclPluginPanel() {
                     if (scanning) {
                         PclText(text = "正在扫描插件 APK…", fontSize = 12, color = p.gray2)
                     }
+                }
+                // 「所有文件访问」没开时，下载文件夹与插件目录都读不到 ——
+                // 那种情况下只有「已安装应用」那一条能用，得让用户知道，别以为功能坏了。
+                if (!hasAllFilesAccess()) {
+                    Spacer(Modifier.height(10.dp))
+                    PclHint(
+                        text = "当前没有「所有文件访问」权限，扫描不到下载文件夹与插件目录；" +
+                                "已经装成应用的插件不受影响，照样能识别。" +
+                                "想用文件夹那一套，请到系统设置里给本应用开启该权限。",
+                        theme = PclHintTheme.Yellow,
+                    )
                 }
                 Spacer(Modifier.height(10.dp))
                 PclHint(
@@ -309,6 +321,11 @@ private fun PluginRow(
         }
     }
 }
+
+/** 有没有「所有文件访问」权限（没有就只能靠「已安装应用」这条路识别插件）。 */
+private fun hasAllFilesAccess(): Boolean =
+    android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R ||
+            android.os.Environment.isExternalStorageManager()
 
 /** 细分割线。 */
 @Composable

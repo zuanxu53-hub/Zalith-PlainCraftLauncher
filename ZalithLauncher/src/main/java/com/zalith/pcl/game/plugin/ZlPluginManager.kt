@@ -294,8 +294,65 @@ object ZlPluginManager {
             }
         }
 
+        // 再扫一遍「已安装的应用」：插件本身就是可安装的 APK，用户从文件管理器装完之后
+        // 就算把安装包删了，也应该能认出来。
+        runCatching { scanInstalled(context, records, installed, rejected) }
+            .onFailure { Logger.warning(TAG, "扫描已安装应用失败", it) }
+
         writeScanRecords(root, records.takeLast(300))
         return PluginScanResult(installed = installed, rejected = rejected)
+    }
+
+    /**
+     * 扫系统里**已安装的应用**，挑出带 `assets/zplugin/plugin.json` 的当插件装上。
+     *
+     * 为什么要这条：插件就是一个能装的 APK，用户很可能直接从文件管理器装成应用、
+     * 然后把安装包删了 —— 只扫文件目录的话，这种情况永远是「已安装（0）」。
+     *
+     * 需要 `QUERY_ALL_PACKAGES`（Android 11 起默认看不到别的应用）。
+     */
+    private fun scanInstalled(
+        context: Context,
+        records: MutableList<ScanRecord>,
+        installed: MutableList<ZlPlugin>,
+        rejected: MutableList<String>,
+    ) {
+        val pm = context.packageManager
+        val known = list(context).map { it.id }.toSet()
+        val packages = runCatching { pm.getInstalledPackages(0) }.getOrDefault(emptyList())
+
+        packages.forEach { info ->
+            val pkg = info.packageName ?: return@forEach
+            if (pkg == context.packageName) return@forEach
+            val sourceDir = info.applicationInfo?.sourceDir ?: return@forEach
+            val apk = File(sourceDir)
+            if (!apk.isFile) return@forEach
+
+            // 用「包名 + 版本号」当指纹：应用升级后会重新识别一次
+            val key = "pkg:" + pkg + ":" + info.longVersionCode
+            if (records.any { it.path == key }) return@forEach
+            if (!looksLikePlugin(apk)) return@forEach
+
+            if (sanitizeId(pkg) in known) {
+                // 已经装过同一个包，不重复安装
+                records += ScanRecord(path = key)
+                return@forEach
+            }
+            runCatching { install(context, apk) }
+                .onSuccess { plugin ->
+                    installed += plugin
+                    records += ScanRecord(path = key)
+                    Logger.info(TAG, "从已安装应用识别到插件 ${plugin.name}（$pkg）")
+                }
+                .onFailure { e ->
+                    records += ScanRecord(path = key)
+                    val label = runCatching {
+                        info.applicationInfo?.loadLabel(pm)?.toString()
+                    }.getOrNull() ?: pkg
+                    rejected += "$label：${e.message ?: "安装失败"}"
+                    Logger.warning(TAG, "从已安装应用安装插件失败：$pkg", e)
+                }
+        }
     }
 
     /** 系统「下载」文件夹；拿不到（或没权限）就返回 null。 */
