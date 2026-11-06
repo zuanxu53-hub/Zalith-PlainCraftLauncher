@@ -1546,7 +1546,8 @@ fun PclCheckBox(
                     fillColor = p.halfWhite,
                     borderColor = borderColor,
                     borderWidth = PclDimens.checkBoxBorder,
-                    role = "input",
+                    // 14dp 的小方块上做模糊/折射只会糊成一团；勾选框保持 PCL 的实色 + 边框
+                    role = "check",
                 ),
             contentAlignment = Alignment.Center,
         ) {
@@ -1624,7 +1625,7 @@ fun PclRadioBox(
                         fillColor = p.halfWhite,
                         borderColor = borderColor,
                         borderWidth = PclDimens.radioBoxBorder,
-                        role = "input",
+                        role = "check",
                     ),
                 contentAlignment = Alignment.Center,
             ) {

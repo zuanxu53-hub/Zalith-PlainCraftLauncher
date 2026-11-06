@@ -557,8 +557,14 @@ fun Modifier.pclSurfaceBordered(
         alphaScale = alphaScale,
         role = role,
     )
-    // 装了皮肤时由插件说了算：`border.mode = none` 就一条线都不画
-    val drawBorder = theme == null || theme.border.mode == PclBorderMode.Hairline
+    // 什么时候画边框：
+    //   · 没装皮肤 → 照 PCL 原样画；
+    //   · 这个角色**没有**用玻璃（比如勾选框、标题栏胶囊）→ 也照 PCL 原样画，
+    //     否则「取消了边框 + 又没玻璃」，控件就只剩一块糊掉的底色，看着像坏了；
+    //   · 用了玻璃 → 才听 `border.mode`。
+    val drawBorder = theme == null ||
+            theme.border.mode == PclBorderMode.Hairline ||
+            !theme.glassEnabledFor(role)
     if (!drawBorder) return base
     val color = theme?.border?.color?.copy(alpha = theme.border.alpha) ?: borderColor
     return base.border(borderWidth, color, shape)
