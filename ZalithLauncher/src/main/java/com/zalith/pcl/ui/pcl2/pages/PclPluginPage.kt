@@ -45,6 +45,8 @@ import com.zalith.pcl.game.plugin.ZlPluginManager
 import com.zalith.pcl.ui.pcl2.theme.PclUiRenderer
 import com.zalith.pcl.ui.pcl2.theme.PclUiRuntime
 import com.zalith.pcl.ui.pcl2.theme.pclGlassDiagnostics
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import com.zalith.pcl.ui.pcl2.LocalPclNav
 import com.zalith.pcl.ui.pcl2.PclContent
 import com.zalith.pcl.ui.pcl2.PclHintHost
@@ -125,6 +127,28 @@ fun PclPluginPanel() {
         }
     }
 
+    // 手动选 APK：不经过存储权限，靠系统文件选择器拿一个 Uri。
+    // 插件管理页必须有一条不依赖权限的安装路径，否则国产 ROM 上很容易彻底装不了。
+    val pickApk = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val installed = withContext(Dispatchers.IO) {
+                runCatching { ZlPluginManager.install(context, uri) }.getOrNull()
+            }
+            reload()
+            if (installed == null) {
+                PclHintHost.push("这个文件不是有效的插件 APK（缺少 assets/zplugin/plugin.json）。", PclHintTheme.Red)
+            } else {
+                PclHintHost.push(
+                    "已安装「${installed.name}」" + if (installed.enabled) "，已自动启用。" else "。",
+                    PclHintTheme.Green,
+                )
+            }
+        }
+    }
+
     // 首次进入（以及每次切回本页）自动扫一次；静默执行，没东西就不弹提示。
     LaunchedEffect(Unit) {
         reload()
@@ -169,11 +193,10 @@ fun PclPluginPanel() {
                 )
                 Spacer(Modifier.height(10.dp))
                 PclText(
-                    text = "不需要手动选文件。插件 APK 只要在下面任意一个位置，进入本页就会自动认出来并装好：\n" +
-                            "· 已经装成应用的插件（最常见：点 APK 装完之后，安装包删了也认）\n" +
-                            "· 系统「下载」文件夹 —— 下载完直接回来就行\n" +
-                            "· 插件根目录 `plugins/`（散装 .apk）\n" +
-                            "· 投递目录 `plugins/incoming/` —— 装完会把原件清掉",
+                    text = "插件的来源（按可靠程度排）：\n" +
+                            "· **从文件选择 APK** —— 最稳，走系统文件选择器，不需要任何存储权限\n" +
+                            "· 系统「下载」文件夹 —— 有「所有文件访问」权限时进本页会自动认出来\n" +
+                            "· 插件根目录 `plugins/`（散装 .apk）与 `plugins/incoming/`",
                     fontSize = 12,
                 )
                 Spacer(Modifier.height(10.dp))
@@ -187,6 +210,12 @@ fun PclPluginPanel() {
                         enabled = !scanning,
                         onClick = { scan(announce = true) },
                     )
+                    // 自动扫描吃权限、吃目录结构，国产 ROM 上经常扫不到。
+                    // 手动选文件不依赖任何权限，是保底的一条路，必须放在显眼位置。
+                    PclButton(
+                        text = "从文件选择 APK",
+                        onClick = { pickApk.launch(arrayOf("*/*")) },
+                    )
                     if (scanning) {
                         PclText(text = "正在扫描插件 APK…", fontSize = 12, color = p.gray2)
                     }
@@ -196,9 +225,8 @@ fun PclPluginPanel() {
                 if (!hasAllFilesAccess()) {
                     Spacer(Modifier.height(10.dp))
                     PclHint(
-                        text = "当前没有「所有文件访问」权限，扫描不到下载文件夹与插件目录；" +
-                                "已经装成应用的插件不受影响，照样能识别。" +
-                                "想用文件夹那一套，请到系统设置里给本应用开启该权限。",
+                        text = "当前没有「所有文件访问」权限，自动扫描读不到下载文件夹与插件目录。" +
+                                "这不影响用「从文件选择 APK」安装 —— 那条路不需要权限。",
                         theme = PclHintTheme.Yellow,
                     )
                 }

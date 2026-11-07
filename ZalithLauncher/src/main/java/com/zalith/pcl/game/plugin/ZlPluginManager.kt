@@ -227,6 +227,10 @@ object ZlPluginManager {
      */
     fun activeTheme(context: Context): ZlPluginTheme? {
         val plugin = list(context).firstOrNull { it.enabled && it.isTheme } ?: return null
+        // 老版本启动器装插件时**不复制** `assets/zplugin/res/`，升级之后插件目录里就没有素材，
+        // 主题只能退回纯色 —— 用户看到的就是「怎么只换了个配色」。
+        // 这里在加载主题前补一次：没有 res/ 就从保留下来的 plugin.apk 重新解一遍。
+        runCatching { ensureAssets(plugin) }
         val spec = File(plugin.dir, "ui.json")
         val json = runCatching { if (spec.isFile) spec.readText() else null }.getOrNull()
         return ZlPluginTheme(
@@ -253,6 +257,37 @@ object ZlPluginManager {
                 json?.takeIf { it.isNotBlank() }
                     ?.let { ZlPluginPages(plugin.id, plugin.name, it) }
             }
+    }
+
+    /**
+     * 补齐插件素材目录。
+     *
+     * @return 目录里现在有素材了（或本来就有）。
+     */
+    fun ensureAssets(plugin: ZlPlugin): Boolean {
+        val resDir = File(plugin.dir, "res")
+        if (resDir.isDirectory && resDir.listFiles()?.isNotEmpty() == true) return true
+        val apk = File(plugin.dir, "plugin.apk")
+        if (!apk.isFile) return false
+        return runCatching {
+            ZipFile(apk).use { zip ->
+                var copied = 0
+                zip.entries().toList().forEach { entry ->
+                    val name = entry.normalizedEntryName()
+                    if (entry.isDirectory || !name.startsWith(RES_PREFIX)) return@forEach
+                    val rel = name.removePrefix(RES_PREFIX)
+                    if (rel.isBlank()) return@forEach
+                    val out = File(plugin.dir, "res/$rel")
+                    out.parentFile?.mkdirs()
+                    zip.getInputStream(entry).use { input ->
+                        out.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    copied++
+                }
+                if (copied > 0) Logger.info(TAG, "已补齐 ${plugin.name} 的素材（$copied 个文件）")
+                copied > 0
+            }
+        }.getOrDefault(false)
     }
 
     /** 列出已安装插件（按名字排序）。 */

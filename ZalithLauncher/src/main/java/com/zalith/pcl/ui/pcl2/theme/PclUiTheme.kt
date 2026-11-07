@@ -207,6 +207,16 @@ data class PclUiTheme(
     /** 按钮文字是否强制居中；PCL 原本就是居中，玻璃外壳容易丢，默认开。 */
     val buttonTextCenter: Boolean = true,
     /**
+     * 按钮要不要用**移植来的液态组件**（按压回弹、朝手指形变、高光跟随）。
+     *
+     * 默认 **false**：这套组件只有「液态玻璃」那种主题才需要，
+     * 其他玻璃主题（Claude 这类磨砂、编辑排版风）套上去会凭空多出一圈玻璃边缘光，
+     * 看起来像按钮浮在一块玻璃上 —— 那不一定是它想要的按钮。
+     *
+     * 以前这里是硬编码「有 backdrop 就上」，等于启动器替所有主题做了决定。
+     */
+    val liquidButton: Boolean = false,
+    /**
      * 玻璃的覆盖范围：
      * - `cards`（默认）只给卡片 / 标题栏 / 侧栏上玻璃，按钮、输入框、列表保持 PCL 原样；
      * - `all` 连按钮与输入框一起玻璃化。
@@ -264,6 +274,7 @@ private data class SliderJson(
 
 private data class ButtonJson(
     @SerializedName("textAlign") val textAlign: String? = null,
+    @SerializedName("liquid") val liquid: Boolean? = null,
 )
 
 private data class ThemeJson(
@@ -359,6 +370,7 @@ fun parsePclUiTheme(json: String, fallbackId: String = ""): PclUiTheme {
         neutralPalette = raw.palette?.trim()?.lowercase() == "neutral",
         sliderLiquid = raw.slider?.liquid ?: false,
         buttonTextCenter = raw.button?.textAlign?.trim()?.lowercase() != "start",
+        liquidButton = raw.button?.liquid == true,
         glassAllControls = raw.scope?.trim()?.lowercase() == "all",
         glass = PclGlassParams(
             blur = raw.glass?.blur?.coerceIn(0f, 40f) ?: def.glass.blur,
