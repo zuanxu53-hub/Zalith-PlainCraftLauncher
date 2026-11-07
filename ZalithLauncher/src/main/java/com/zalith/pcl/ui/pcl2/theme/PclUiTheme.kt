@@ -66,6 +66,15 @@ enum class PclUiRenderer {
     Flat,
 }
 
+/**
+ * 软玻璃（没有系统模糊时那条路）的底片质量。
+ *
+ * 底片是「把背景层按小分辨率重画一遍」，玻璃再从它上面取样。
+ * 分辨率越高越细腻，代价是内存（1/2 屏 ≈ 650 KB）与重绘耗时。
+ * 让插件选，而不是启动器定死 —— 低端机可以选 low，追求观感可以选 high。
+ */
+enum class PclGlassQuality { Low, Normal, High }
+
 /** 玻璃渲染器的参数（`renderer = "glass"` 时才用）。 */
 data class PclGlassParams(
     /** 高斯模糊半径（dp）。 */
@@ -112,6 +121,8 @@ data class PclGlassParams(
     val vibrancy: Boolean = true,
     /** 标题栏 / 侧栏这些大面积要不要一起做。 */
     val panel: Boolean = true,
+    /** 软玻璃底片的清晰度（只影响 Android 11 及以下、以及所有弹窗）。 */
+    val quality: PclGlassQuality = PclGlassQuality.Normal,
 )
 
 /** 描边策略：`none` = 玻璃态一律不画线；`hairline` = 保留 PCL 的细线。 */
@@ -247,6 +258,8 @@ private data class GlassJson(
     @SerializedName("highlightWidth") val highlightWidth: Float? = null,
     @SerializedName("haze") val haze: Float? = null,
     @SerializedName("edgeGlow") val edgeGlow: Float? = null,
+    /** `low` / `normal` / `high` */
+    @SerializedName("quality") val quality: String? = null,
 )
 
 /** `ui.json` 的原始结构；字段全部可缺省，缺省即用默认值。 */
@@ -386,6 +399,11 @@ fun parsePclUiTheme(json: String, fallbackId: String = ""): PclUiTheme {
             shadow = raw.glass?.shadow?.coerceIn(0f, 1f) ?: def.glass.shadow,
             vibrancy = raw.glass?.vibrancy ?: def.glass.vibrancy,
             panel = raw.glass?.panel ?: def.glass.panel,
+            quality = when (raw.glass?.quality?.trim()?.lowercase()) {
+                "low" -> PclGlassQuality.Low
+                "high" -> PclGlassQuality.High
+                else -> PclGlassQuality.Normal
+            },
         ),
     )
 }

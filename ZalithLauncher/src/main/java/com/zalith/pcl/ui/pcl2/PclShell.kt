@@ -147,6 +147,7 @@ import com.zalith.pcl.ui.pcl2.theme.PclSurface
 import com.zalith.pcl.ui.pcl2.theme.PclSoftBackdrop
 import com.zalith.pcl.ui.pcl2.theme.PclUiRenderer
 import com.zalith.pcl.ui.pcl2.theme.PclAssetLoader
+import com.zalith.pcl.ui.pcl2.theme.PclGlassQuality
 import com.zalith.pcl.ui.pcl2.theme.PclSlotOverride
 import com.zalith.pcl.ui.pcl2.theme.PclUiTheme
 import com.zalith.pcl.ui.pcl2.data.parsePclPluginPages
@@ -754,9 +755,10 @@ private fun PclSoftBackdropHost(
         LaunchedEffect(glass) { PclUiRuntime.soft = null }
         return
     }
-    LaunchedEffect(theme?.id, size, wallpaper, hasVideo, colorful, opacityPercent) {
+    val quality = theme?.glass?.quality ?: PclGlassQuality.Normal
+    LaunchedEffect(theme?.id, size, wallpaper, hasVideo, colorful, opacityPercent, quality) {
         val bmp = withContext(Dispatchers.Default) {
-            buildSoftBackdrop(size, wallpaper, hasVideo, colorful, opacityPercent)
+            buildSoftBackdrop(size, wallpaper, hasVideo, colorful, opacityPercent, quality)
         }
         PclUiRuntime.soft = bmp?.let { PclSoftBackdrop(it, size) }
     }
@@ -774,14 +776,24 @@ private fun buildSoftBackdrop(
     hasVideo: Boolean,
     colorful: Boolean,
     opacityPercent: Int,
+    quality: PclGlassQuality,
 ): ImageBitmap? = runCatching {
     // 两阶段缩放，而不是「画小再直接丢给 shader」：
     //   ① 先在 1/12 上画 —— 缩小本身是最强的低通，内容被压成色块；
     //   ② 再用双线性放大到 1/3 作为底片，shader 只需要再放大 3 倍。
     // 之前是直接画 1/6 让 shader 放大 6 倍：弹窗那种大块玻璃上会看到明显的方块（马赛克），
     // 控件中间还会出现一条采样接缝（双线性在放大倍数突变处产生的亮度台阶）。
-    val paintDiv = 12
-    val storeDiv = 3
+    // 画布与底片的分辨率由主题挑：低端机可以 low，追求观感可以 high
+    val paintDiv = when (quality) {
+        PclGlassQuality.Low -> 16
+        PclGlassQuality.Normal -> 12
+        PclGlassQuality.High -> 8
+    }
+    val storeDiv = when (quality) {
+        PclGlassQuality.Low -> 4
+        PclGlassQuality.Normal -> 3
+        PclGlassQuality.High -> 2
+    }
     val w = (size.width / paintDiv).coerceIn(12, 320)
     val h = (size.height / paintDiv).coerceIn(12, 320)
     val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
