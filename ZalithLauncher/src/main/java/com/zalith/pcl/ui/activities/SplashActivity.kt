@@ -84,6 +84,8 @@ const val EXTRA_IMPORT_TYPE   = "EXTRA_IMPORT_TYPE"
 
 const val IMPORT_TYPE_MODPACK = "modpack"
 const val IMPORT_TYPE_CONTROLS = "controls"
+/** 「导入模组」独立入口：把 .jar 装进某个实例的 mods 目录。 */
+const val IMPORT_TYPE_MODS = "mods"
 /** 「导入到启动器」通用入口：分享方给的是通配类型，具体类型由界面层按文件名后缀判断 */
 const val IMPORT_TYPE_AUTO = "auto"
 const val IMPORT_TYPE_UNKNOWN = "unknown"

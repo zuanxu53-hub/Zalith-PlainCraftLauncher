@@ -398,6 +398,8 @@
     <!--  Import Modpack  -->
     <string name="import_modpack">Import Modpack</string>
     <string name="import_anything">Import to launcher</string>
+    <string name="import_mod">Import Mod</string>
+    <string name="import_layout">Import Layout</string>
     <string name="import_modpack_tip">You can import local modpack files. The launcher currently supports these formats:</string>
     <string name="import_modpack_task_unpack">Import and unpack file</string>
     <string name="import_modpack_task_parse">Parse modpack</string>

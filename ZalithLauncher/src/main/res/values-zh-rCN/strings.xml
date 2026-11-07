@@ -397,6 +397,8 @@
     <string name="download_assets_features_models">模型</string>
     <!--  导入整合包  -->
     <string name="import_modpack">导入整合包</string>
+    <string name="import_mod">导入模组</string>
+    <string name="import_layout">导入布局</string>
     <string name="import_modpack_tip">您可以自行导入本地的整合包文件，启动器目前支持这些整合包格式：</string>
     <string name="import_modpack_task_unpack">导入文件并解压</string>
     <string name="import_modpack_task_parse">解析整合包</string>

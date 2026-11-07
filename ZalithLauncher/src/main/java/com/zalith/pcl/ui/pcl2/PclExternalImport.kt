@@ -29,6 +29,7 @@ import com.zalith.pcl.game.download.modpack.install.ModpackImporter
 import com.zalith.pcl.ui.activities.IMPORT_TYPE_AUTO
 import com.zalith.pcl.ui.activities.IMPORT_TYPE_CONTROLS
 import com.zalith.pcl.ui.activities.IMPORT_TYPE_MODPACK
+import com.zalith.pcl.ui.activities.IMPORT_TYPE_MODS
 import com.zalith.pcl.ui.pcl2.components.PclHintTheme
 import com.zalith.pcl.ui.pcl2.components.PclNoticeDialog
 import com.zalith.pcl.ui.pcl2.components.PclSelectDialog
@@ -100,6 +101,15 @@ fun PclExternalImportHost(runtime: PclRuntime) {
                             uri = req.uri,
                             name = name,
                             kind = pclSharedKindOf(name),
+                        )
+                    }
+                    // 「导入模组」独立入口：明确就是 .jar，直接指定 MOD，不再猜类型
+                    IMPORT_TYPE_MODS -> {
+                        val name = pclDisplayName(context, req.uri) ?: "Mod"
+                        sharedResource = PendingSharedResource(
+                            uri = req.uri,
+                            name = name,
+                            kind = PclSharedResourceKind.MOD,
                         )
                     }
                     else -> {

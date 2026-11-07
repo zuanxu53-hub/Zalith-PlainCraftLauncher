@@ -68,6 +68,74 @@
             </intent-filter>
         </activity>
 
+        <!-- 分享 / 「用其它应用打开」的入口。
+             现在拆成四条：整合包 / 模组 / 布局 各一条明确的入口，再加一条 auto 通配兜底。
+             独立入口的 intent-filter 收窄到对应扩展名，避免分享面板里并排出现同名条目。 -->
+        <activity-alias
+            android:label="@string/import_modpack"
+            android:name="com.zalith.pcl.activity.ImportModpackActivity"
+            android:exported="true"
+            android:targetActivity=".ui.activities.SplashActivity">
+            <meta-data
+                android:name="import_type"
+                android:value="modpack" />
+            <intent-filter>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <action android:name="android.intent.action.VIEW"/>
+                <data android:scheme="content"/>
+                <data android:mimeType="application/zip"/>
+                <data android:mimeType="application/x-rar-compressed"/>
+                <data android:mimeType="application/x-7z-compressed"/>
+            </intent-filter>
+            <intent-filter>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <action android:name="android.intent.action.SEND"/>
+                <data android:mimeType="application/zip"/>
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:label="@string/import_mod"
+            android:name="com.zalith.pcl.activity.ImportModActivity"
+            android:exported="true"
+            android:targetActivity=".ui.activities.SplashActivity">
+            <meta-data
+                android:name="import_type"
+                android:value="mods" />
+            <intent-filter>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <action android:name="android.intent.action.VIEW"/>
+                <data android:scheme="content"/>
+                <data android:mimeType="application/java-archive"/>
+            </intent-filter>
+            <intent-filter>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <action android:name="android.intent.action.SEND"/>
+                <data android:mimeType="application/java-archive"/>
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:label="@string/import_layout"
+            android:name="com.zalith.pcl.activity.ImportLayoutActivity"
+            android:exported="true"
+            android:targetActivity=".ui.activities.SplashActivity">
+            <meta-data
+                android:name="import_type"
+                android:value="controls" />
+            <intent-filter>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <action android:name="android.intent.action.VIEW"/>
+                <data android:scheme="content"/>
+                <data android:mimeType="application/json"/>
+            </intent-filter>
+            <intent-filter>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <action android:name="android.intent.action.SEND"/>
+                <data android:mimeType="application/json"/>
+            </intent-filter>
+        </activity-alias>
+
         <!-- 分享 / 「用其它应用打开」只保留一个入口。
              以前这里是三个 activity-alias（导入整合包 / 导入控制布局 / 导入到启动器），
              分享一个文件时分享面板会并排出现三条同名启动器条目，用户根本不知道点哪个。
