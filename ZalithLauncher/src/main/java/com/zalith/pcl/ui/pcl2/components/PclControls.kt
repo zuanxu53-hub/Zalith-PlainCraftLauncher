@@ -138,6 +138,7 @@ import com.zalith.pcl.ui.pcl2.theme.LocalPclUiTheme
 import com.zalith.pcl.ui.pcl2.theme.PclSurface
 import com.zalith.pcl.ui.pcl2.theme.cornerOr
 import com.zalith.pcl.ui.pcl2.theme.buttonCornerOr
+import com.zalith.pcl.ui.pcl2.theme.roleCornerOr
 import com.zalith.pcl.ui.pcl2.theme.pclSurface
 import com.zalith.pcl.ui.pcl2.theme.glassEnabledFor
 import com.zalith.pcl.ui.pcl2.theme.roleAlpha
@@ -378,7 +379,9 @@ fun PclButton(
         PclLiquidButtonSurface(
             backdrop = uiBackdrop,
             // 圆角给足 = 胶囊：源码写死 Capsule()，液态玻璃的按钮就是这个形状
-            shape = RoundedCornerShape(uiTheme.buttonCornerOr(PclDimens.buttonCorner)),
+            shape = RoundedCornerShape(
+                uiTheme.roleCornerOr("button", uiTheme.buttonCornerOr(PclDimens.buttonCorner)),
+            ),
             modifier = modifier,
             enabled = enabled,
             minHeight = height,
@@ -407,7 +410,9 @@ fun PclButton(
 
     // 低版本走「软玻璃」：液态按钮组件需要真 `Backdrop`（系统模糊），这里给不了，
     // 但软玻璃不需要它 —— 有条件就该让按钮也透出背景，而不是留一个白色方框。
-    val softGlassShape = RoundedCornerShape(uiTheme.buttonCornerOr(PclDimens.buttonCorner))
+    val softGlassShape = RoundedCornerShape(
+        uiTheme.roleCornerOr("button", uiTheme.buttonCornerOr(PclDimens.buttonCorner)),
+    )
     val softButton = uiTheme != null &&
             uiTheme.renderer == PclUiRenderer.Glass &&
             uiTheme.glassEnabledFor("button") &&
@@ -935,7 +940,9 @@ fun PclCard(
                     Modifier.pclSurface(
                         theme = uiTheme,
                         backdrop = uiBackdrop,
-                        shape = RoundedCornerShape(uiTheme.cornerOr(PclDimens.cardCorner)),
+                        shape = RoundedCornerShape(
+                            uiTheme.roleCornerOr("card", uiTheme.cornerOr(PclDimens.cardCorner)),
+                        ),
                         surface = PclSurface.Card,
                         fallbackColor = p.cardBackground,
                         role = "card",
@@ -1853,19 +1860,9 @@ fun PclSlider(
     val uiBackdrop = LocalPclBackdrop.current
     // 液态滑条默认**不启用**：那个组件的手势和外面的 verticalScroll 抢事件，
     // 实测「按下去拖不动」。插件想试可以在 ui.json 里写 `"slider": {"liquid": true}`。
-    if (uiTheme?.sliderLiquid == true && uiBackdrop != null && enabled &&
-        uiTheme.glassEnabledFor("slider")
-    ) {
-        LiquidSlider(
-            value = { value.coerceIn(0f, 1f) },
-            onValueChange = onValueChange,
-            valueRange = 0f..1f,
-            visibilityThreshold = 0.01f,
-            backdrop = uiBackdrop,
-            modifier = modifier,
-        )
-        return
-    }
+    // 这里原本还有一条「移植来的 LiquidSlider」分支（真液体金属滑块），
+    // 它和外面的 verticalScroll 抢手势、按下拖不动，已经移除。
+    // `slider.liquid` 现在只决定**外观**（粗胶囊 vs PCL 细线），见下面的 liquidLook。
     val activeColor = if (enabled) p.color2 else p.gray4
 
     // MySlider.xaml.vb:87 / :103 —— 手柄按下的缩放：
@@ -1883,7 +1880,10 @@ fun PclSlider(
     // 只有装了液态玻璃插件才这样；否则保持 PCL 原本的细线 + 小圆点。
     // 之前把画法改成了液态，但**没有分支** —— 没装插件时也变成了液态，
     // 这就把 PCL 原始外观改掉了，属于越权。
-    val liquidLook = uiTheme.glassEnabledFor("slider")
+    // 外观由主题显式声明（`ui.json` 的 `slider.liquid`），**不再跟「有没有玻璃」绑定**。
+    // 之前这里是 `glassEnabledFor("slider")`：只要主题给滑条开了玻璃，就强制变成液态粗胶囊，
+    // 于是磨砂风 / 编辑排版风的主题也被套上液态外观 —— 那也是启动器替主题做决定。
+    val liquidLook = uiTheme?.sliderLiquid == true && uiTheme.glassEnabledFor("slider")
 
     Canvas(
         modifier = modifier

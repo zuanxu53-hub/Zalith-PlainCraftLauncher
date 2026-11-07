@@ -772,6 +772,18 @@ fun PclUiTheme?.glassEnabledFor(role: String): Boolean {
 /** 某个角色的不透明度覆盖（没写就返回 null）。 */
 fun PclUiTheme?.roleAlpha(role: String): Float? = this?.roles?.get(role)?.alpha
 
+/**
+ * 某个角色自己的圆角（`ui.json` 的 `roles.<role>.corner`）。
+ *
+ * 主题可以给卡片 14、按钮 10、输入框 10 —— 不同控件本来就该有不同的圆角，
+ * 一个全局 `corner` 套住全部是「一刀切」，那是启动器在替主题做决定。
+ * 没写就退回调用方给的默认值（通常是全局 `corner` 或 PCL 原值）。
+ */
+fun PclUiTheme?.roleCornerOr(
+    role: String,
+    default: androidx.compose.ui.unit.Dp,
+): androidx.compose.ui.unit.Dp = this?.roles?.get(role)?.corner?.dp ?: default
+
 /** 皮肤覆盖的按钮圆角。 */
 fun PclUiTheme?.buttonCornerOr(default: androidx.compose.ui.unit.Dp): androidx.compose.ui.unit.Dp =
     this?.buttonCorner?.dp ?: default
