@@ -775,9 +775,15 @@ private fun buildSoftBackdrop(
     colorful: Boolean,
     opacityPercent: Int,
 ): ImageBitmap? = runCatching {
-    val div = 6
-    val w = (size.width / div).coerceIn(24, 640)
-    val h = (size.height / div).coerceIn(24, 640)
+    // 两阶段缩放，而不是「画小再直接丢给 shader」：
+    //   ① 先在 1/12 上画 —— 缩小本身是最强的低通，内容被压成色块；
+    //   ② 再用双线性放大到 1/3 作为底片，shader 只需要再放大 3 倍。
+    // 之前是直接画 1/6 让 shader 放大 6 倍：弹窗那种大块玻璃上会看到明显的方块（马赛克），
+    // 控件中间还会出现一条采样接缝（双线性在放大倍数突变处产生的亮度台阶）。
+    val paintDiv = 12
+    val storeDiv = 3
+    val w = (size.width / paintDiv).coerceIn(12, 320)
+    val h = (size.height / paintDiv).coerceIn(12, 320)
     val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bmp)
     val wf = w.toFloat()
@@ -820,7 +826,10 @@ private fun buildSoftBackdrop(
             )
         }
     }
-    bmp.asImageBitmap()
+    // 放大到 1/3 作为最终底片（平滑插值，块被磨掉）
+    val finalW = (size.width / storeDiv).coerceAtLeast(16)
+    val finalH = (size.height / storeDiv).coerceAtLeast(16)
+    Bitmap.createScaledBitmap(bmp, finalW, finalH, true).asImageBitmap()
 }.getOrNull()
 
 /* ============================================================================
