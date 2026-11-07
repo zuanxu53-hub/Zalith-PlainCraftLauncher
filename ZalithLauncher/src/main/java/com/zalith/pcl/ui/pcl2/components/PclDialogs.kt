@@ -80,6 +80,7 @@ import com.zalith.pcl.ui.pcl2.theme.PclUiRenderer
 import com.zalith.pcl.ui.pcl2.theme.PclUiRuntime
 import com.zalith.pcl.ui.pcl2.theme.pclSurface
 import com.zalith.pcl.ui.pcl2.theme.pclFauxGlass
+import com.zalith.pcl.ui.pcl2.theme.roleCornerOr
 import com.zalith.pcl.ui.pcl2.theme.PclEase
 import com.zalith.pcl.ui.pcl2.theme.PclTextStyle
 import com.zalith.pcl.ui.pcl2.theme.pclPalette
@@ -301,6 +302,11 @@ private fun PclMsgFrame(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val p = pclPalette
+    val uiTheme = LocalPclUiTheme.current
+    // 弹窗圆角交给主题（`roles.dialog.corner`），没写就退回 PCL 原值。
+    val dialogCorner = RoundedCornerShape(
+        uiTheme.roleCornerOr("dialog", PclDimens.msgCorner),
+    )
     // 注意：进出动画由外层 [PclDialogContainer] 负责（它包着 [PclDialogHost]），
     // 这里只画 `MyMsg*` 的视觉外框，**不能**再套一层 AniHost —— 套两层等于把 Y/旋转变换叠加两遍。
     Box(
@@ -308,25 +314,32 @@ private fun PclMsgFrame(
             .padding(PclDimens.msgMargin)
             .widthIn(max = PclDimens.msgMaxWidth)
             // DropShadowEffect Color=ColorObject1 BlurRadius=20 ShadowDepth=4 Opacity=0.8
-            .shadow(
-                elevation = 4.dp,
-                shape = RoundedCornerShape(PclDimens.msgCorner),
-                ambientColor = p.color1.copy(alpha = 0.8f),
-                spotColor = p.color1.copy(alpha = 0.8f),
+            // 装了主题就不再画这条 PCL 原生投影 —— 阴影归主题管（终端风、扁平风都要能关掉它）。
+            .then(
+                if (uiTheme == null) {
+                    Modifier.shadow(
+                        elevation = 4.dp,
+                        shape = dialogCorner,
+                        ambientColor = p.color1.copy(alpha = 0.8f),
+                        spotColor = p.color1.copy(alpha = 0.8f),
+                    )
+                } else {
+                    Modifier
+                }
             )
-            .clip(RoundedCornerShape(PclDimens.msgCorner))
+            .clip(dialogCorner)
             // 弹窗是独立 Window：`drawBackdrop` 取不到主窗口的底片，但**软玻璃**能 ——
             // 它吃的是一张整屏的背景小图，配合上面的 LocalPclScreenOffset 就能对齐。
             // 有软底片就做真玻璃（透出身后的背景），没有才退回拟态玻璃。
             .then(
                 when {
-                    LocalPclUiTheme.current?.renderer != PclUiRenderer.Glass ->
+                    uiTheme?.renderer != PclUiRenderer.Glass ->
                         Modifier.background(MsgBackground)
                     PclUiRuntime.soft != null ->
                         Modifier.pclSurface(
-                            theme = LocalPclUiTheme.current,
+                            theme = uiTheme,
                             backdrop = null,
-                            shape = RoundedCornerShape(PclDimens.msgCorner),
+                            shape = dialogCorner,
                             surface = PclSurface.Panel,
                             fallbackColor = MsgBackground,
                             // 弹窗底下压着 scrim，不能像卡片那么透，否则正文会糊进背景。
@@ -335,8 +348,8 @@ private fun PclMsgFrame(
                             role = "dialog",
                         )
                     else -> Modifier.pclFauxGlass(
-                        theme = LocalPclUiTheme.current,
-                        shape = RoundedCornerShape(PclDimens.msgCorner),
+                        theme = uiTheme,
+                        shape = dialogCorner,
                         fillColor = MsgBackground,
                         fillAlpha = 0.88f,
                         shadowRadius = 20.dp,

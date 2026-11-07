@@ -468,6 +468,7 @@ val pclRefractionSupported: Boolean
 fun pclGlassDiagnostics(theme: PclUiTheme?): String {
     if (theme == null) return "未启用皮肤"
     return buildString {
+        PclUiRuntime.themeName?.let { append("主题 ").append(it).append(" · ") }
         append("渲染器 ").append(if (theme.renderer == PclUiRenderer.Glass) "glass" else "flat")
         append(" · 系统 API ").append(Build.VERSION.SDK_INT)
         append(" · 模糊 ").append(if (pclGlassSupported) "可用" else "不可用（需 Android 12）")
@@ -484,6 +485,10 @@ fun pclGlassDiagnostics(theme: PclUiTheme?): String {
 object PclUiRuntime {
     /** 当前生效的皮肤；null = 未启用。 */
     var theme by mutableStateOf<PclUiTheme?>(null)
+        private set
+
+    /** 当前生效皮肤的名字（插件名），诊断用 —— 让用户一眼看出到底哪个主题在生效。 */
+    var themeName by mutableStateOf<String?>(null)
         private set
 
     /**
@@ -511,12 +516,14 @@ object PclUiRuntime {
         id?.let { key -> pages.firstOrNull { it.id == key } }
 
     /** 由插件目录里的 `ui.json` 文本刷新一次。必须在 IO 线程调用。 */
-    fun apply(json: String?, id: String = "") {
+    fun apply(json: String?, id: String = "", name: String? = null) {
+        if (name != null) themeName = name
         theme = json?.let { parsePclUiTheme(it, id) }
     }
 
     fun clear() {
         theme = null
+        themeName = null
         soft = null
     }
 }

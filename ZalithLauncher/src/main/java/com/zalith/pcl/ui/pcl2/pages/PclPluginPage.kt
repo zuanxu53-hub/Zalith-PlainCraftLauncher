@@ -161,7 +161,7 @@ fun PclPluginPanel() {
         val theme = withContext(Dispatchers.IO) {
             runCatching { ZlPluginManager.activeTheme(context) }.getOrNull()
         }
-        PclUiRuntime.apply(theme?.json, theme?.id.orEmpty())
+        PclUiRuntime.apply(theme?.json, theme?.id.orEmpty(), theme?.name)
     }
 
     // 右栏统一用 PclContent：它自带内边距、滚动与「回顶」信号，

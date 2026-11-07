@@ -381,7 +381,7 @@ fun PclMainScreen(
         val themeJson = withContext(Dispatchers.IO) {
             runCatching { ZlPluginManager.activeTheme(context) }.getOrNull()
         }
-        PclUiRuntime.apply(themeJson?.json, themeJson?.id.orEmpty())
+        PclUiRuntime.apply(themeJson?.json, themeJson?.id.orEmpty(), themeJson?.name)
         // `ui.json` 里的素材路径都相对于插件目录；换插件/升级后图片可能变了，缓存跟着清。
         PclUiRuntime.assetDir = themeJson?.dir
         // 预热素材：`content://` 是跨进程现画的图，第一次读会走 IPC + 解码。
