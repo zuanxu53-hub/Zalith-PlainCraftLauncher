@@ -366,8 +366,11 @@ fun PclButton(
 
     // 玻璃渲染器 + 有底片：交给移植来的液态按钮表面（按压回弹、朝手指形变、高光跟随）。
     // 其余情况（flat 皮肤 / 老系统 / 没装皮肤）还是 PCL 原来的实心按钮。
+    // 有 `assets.button` 素材时不进这里：液态按钮组件会自己画一层玻璃表面，
+    // 把素材完全盖掉。素材是「最终形态」，优先级必须高于任何内置画法。
     if (uiTheme != null && uiTheme.renderer == PclUiRenderer.Glass &&
-        uiTheme.glassEnabledFor("button") && uiBackdrop != null
+        uiTheme.glassEnabledFor("button") && uiBackdrop != null &&
+        uiTheme.assets["button"] == null
     ) {
         PclLiquidButtonSurface(
             backdrop = uiBackdrop,
