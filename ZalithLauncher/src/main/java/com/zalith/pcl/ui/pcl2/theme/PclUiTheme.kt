@@ -563,9 +563,11 @@ fun Modifier.pclSurface(
 
     // 插件给这个角色准备了图片：直接贴图，玻璃与纯色都不再参与。
     // 放在最前面是因为素材是「最终形态」——再叠玻璃只会在图上糊一层，把素材弄脏。
+    // 素材要先真的解码出来再决定 —— `content://` 是插件进程现画的图，
+    // 光看路径判断不了它能不能用；解不出来就继续往下走玻璃/纯色，不留空白。
     theme.assets[role]?.let { asset ->
-        if (PclAssetLoader.resolve(asset) != null) {
-            return this.pclImageSurface(asset, shape)
+        PclAssetLoader.load(asset)?.let { image ->
+            return this.pclImageSurface(image, asset, shape)
         }
     }
 

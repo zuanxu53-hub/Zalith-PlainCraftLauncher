@@ -145,6 +145,7 @@ import com.zalith.pcl.ui.pcl2.theme.LocalPclUiTheme
 import com.zalith.pcl.ui.pcl2.theme.PclDimens
 import com.zalith.pcl.ui.pcl2.theme.PclSurface
 import com.zalith.pcl.ui.pcl2.theme.PclSoftBackdrop
+import com.zalith.pcl.ui.pcl2.theme.PclSoftBlur
 import com.zalith.pcl.ui.pcl2.theme.PclUiRenderer
 import com.zalith.pcl.ui.pcl2.theme.PclAssetLoader
 import com.zalith.pcl.ui.pcl2.theme.PclGlassQuality
@@ -383,6 +384,13 @@ fun PclMainScreen(
         PclUiRuntime.apply(themeJson?.json, themeJson?.id.orEmpty())
         // `ui.json` 里的素材路径都相对于插件目录；换插件/升级后图片可能变了，缓存跟着清。
         PclUiRuntime.assetDir = themeJson?.dir
+        // 预热素材：`content://` 是跨进程现画的图，第一次读会走 IPC + 解码。
+        // 留给组合期就会在首帧卡一下，这里先在 IO 线程把缓存填好。
+        withContext(Dispatchers.IO) {
+            PclUiRuntime.theme?.assets?.values?.forEach {
+                runCatching { PclAssetLoader.load(it) }
+            }
+        }
         PclAssetLoader.clear()
         // 插件声明的页面：布局槽位（ui.json 的 layout）要按 id 找它们，
         // 而渲染版块的地方拿不到插件目录，所以在这里读一次、存进全局。
@@ -730,15 +738,8 @@ private fun PclMainContent(
  * ==========================================================================*/
 
 /**
- * 维护 [PclUiRuntime.soft]：给没有 `RenderEffect` 的机器准备一张缩小过的背景图。
- *
- * 为什么是「按 1/6 重画一遍」而不是直接模糊壁纸：
- *   玻璃身后看到的不只是壁纸，还有窗体底色、窗体渐变、以及玻璃态自带的
- *   渐变 + 三块光斑。这几层叠起来才是「身后真实的颜色」。
- *   在 1/6 的画布上把这些重画一遍，缩小本身就完成了低通滤波；
- *   玻璃块再用 `BitmapShader` 放大取样，看上去就是一块被糊掉的背景。
- *
- * 成本：一张 180×85 的位图，几十毫秒，只在壁纸 / 尺寸 / 不透明度变化时重算。
+ * 为低版本控件和所有版本的独立弹窗准备真正预模糊的底片。
+ * 在后台按主题像素预算绘制，再卷积；缩放本身不能代替模糊。
  */
 @Composable
 private fun PclSoftBackdropHost(
@@ -756,16 +757,17 @@ private fun PclSoftBackdropHost(
         return
     }
     val quality = theme?.glass?.quality ?: PclGlassQuality.Normal
-    LaunchedEffect(theme?.id, size, wallpaper, hasVideo, colorful, opacityPercent, quality) {
+    val blurPx = with(LocalDensity.current) { (theme?.glass?.blur ?: 0f).dp.toPx() }
+    LaunchedEffect(theme?.id, size, wallpaper, hasVideo, colorful, opacityPercent, quality, blurPx) {
         val bmp = withContext(Dispatchers.Default) {
-            buildSoftBackdrop(size, wallpaper, hasVideo, colorful, opacityPercent, quality)
+            buildSoftBackdrop(size, wallpaper, hasVideo, colorful, opacityPercent, quality, blurPx)
         }
         PclUiRuntime.soft = bmp?.let { PclSoftBackdrop(it, size) }
     }
 }
 
 /**
- * 把「背景层」按 1/6 分辨率重画一遍。
+ * 按主题画质绘制背景，并按主题模糊半径做两趟高斯卷积。
  *
  * 顺序必须和 `PclShell` 里的真实背景层一致：底色 → 窗体渐变 → 玻璃态壁纸 → 用户壁纸。
  * 顺序错了，玻璃里透出来的颜色就会和外面差一截。
@@ -777,25 +779,12 @@ private fun buildSoftBackdrop(
     colorful: Boolean,
     opacityPercent: Int,
     quality: PclGlassQuality,
+    blurPx: Float,
 ): ImageBitmap? = runCatching {
-    // 两阶段缩放，而不是「画小再直接丢给 shader」：
-    //   ① 先在 1/12 上画 —— 缩小本身是最强的低通，内容被压成色块；
-    //   ② 再用双线性放大到 1/3 作为底片，shader 只需要再放大 3 倍。
-    // 之前是直接画 1/6 让 shader 放大 6 倍：弹窗那种大块玻璃上会看到明显的方块（马赛克），
-    // 控件中间还会出现一条采样接缝（双线性在放大倍数突变处产生的亮度台阶）。
-    // 画布与底片的分辨率由主题挑：低端机可以 low，追求观感可以 high
-    val paintDiv = when (quality) {
-        PclGlassQuality.Low -> 16
-        PclGlassQuality.Normal -> 12
-        PclGlassQuality.High -> 8
-    }
-    val storeDiv = when (quality) {
-        PclGlassQuality.Low -> 4
-        PclGlassQuality.Normal -> 3
-        PclGlassQuality.High -> 2
-    }
-    val w = (size.width / paintDiv).coerceIn(12, 320)
-    val h = (size.height / paintDiv).coerceIn(12, 320)
+    // 直接画到最终工作分辨率，避免先丢掉细节再把方块放大。
+    val plan = PclSoftBlur.plan(size.width, size.height, quality, blurPx)
+    val w = plan.width
+    val h = plan.height
     val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bmp)
     val wf = w.toFloat()
@@ -819,7 +808,7 @@ private fun buildSoftBackdrop(
 
     // ③ 用户壁纸：按「适应」等比铺满再居中裁切（和 `PclBackgroundSuit.Auto` 的观感一致）
     if (!hasVideo && !wallpaperPath.isNullOrBlank()) {
-        val src = PclImageLoader.load(wallpaperPath, 512)?.asAndroidBitmap()
+        val src = PclImageLoader.load(wallpaperPath, maxOf(w, h))?.asAndroidBitmap()
         if (src != null) {
             val s = maxOf(wf / src.width, hf / src.height)
             val dw = src.width * s
@@ -838,10 +827,19 @@ private fun buildSoftBackdrop(
             )
         }
     }
-    // 放大到 1/3 作为最终底片（平滑插值，块被磨掉）
-    val finalW = (size.width / storeDiv).coerceAtLeast(16)
-    val finalH = (size.height / storeDiv).coerceAtLeast(16)
-    Bitmap.createScaledBitmap(bmp, finalW, finalH, true).asImageBitmap()
+    // 真正过滤高频边缘。仅双线性放大无法消除缩小后形成的大色块。
+    try {
+        if (plan.sigma > 0f) {
+            val pixels = IntArray(w * h)
+            bmp.getPixels(pixels, 0, w, 0, 0, w, h)
+            PclSoftBlur.blurPixels(pixels, plan)
+            bmp.setPixels(pixels, 0, w, 0, 0, w, h)
+        }
+        bmp.asImageBitmap()
+    } catch (error: Throwable) {
+        bmp.recycle()
+        throw error
+    }
 }.getOrNull()
 
 /* ============================================================================

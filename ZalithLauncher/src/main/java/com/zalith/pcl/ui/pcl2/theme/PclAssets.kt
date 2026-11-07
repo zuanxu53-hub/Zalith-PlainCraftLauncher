@@ -33,7 +33,6 @@ import android.graphics.BitmapFactory
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.drawWithCache
@@ -83,6 +82,8 @@ internal object PclAssetLoader {
     }
 
     fun load(spec: PclAssetSpec?): ImageBitmap? {
+        if (spec == null) return null
+
         val file = resolve(spec) ?: return null
         // 带上修改时间：插件升级后图片换了，缓存会自动失效
         val key = file.absolutePath + "|" + file.lastModified()
@@ -104,9 +105,7 @@ internal object PclAssetLoader {
  *
  * @param shape 会把图片裁成这个形状，素材本身不需要带圆角
  */
-fun Modifier.pclImageSurface(spec: PclAssetSpec, shape: Shape): Modifier = composed {
-    val image = remember(spec, PclUiRuntime.assetDir) { PclAssetLoader.load(spec) }
-    if (image == null) return@composed this
+fun Modifier.pclImageSurface(image: ImageBitmap, spec: PclAssetSpec, shape: Shape): Modifier = composed {
 
     drawWithCache {
         val bmp = image.asAndroidBitmap()

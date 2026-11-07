@@ -12,12 +12,9 @@
  *
  * 低版本的出路：
  *   既然拿不到系统的模糊，就**自己准备一张模糊过的背景**。
- *   背景层的内容（渐变、光斑、壁纸）是确定的，可以按 1/6 分辨率重画一遍 ——
- *   缩小本身就是最强的低通滤波；玻璃块再用 `BitmapShader` 按**屏幕坐标**
- *   从这张小图上取自己那一块，放大回去就是「身后的背景被糊掉了」。
- *
- *   这一步在 GPU 上做（Compose 的 Canvas 本来就是硬件加速的），
- *   每块玻璃只是两次 `drawRect`，比 CPU 卷积快几个数量级。
+ *   背景层按主题的像素预算重画，再进行真正的高斯卷积。
+ *   玻璃块用 BitmapShader 从预模糊底片中取样；画质不再靠缩小冒充模糊。
+ *   底片只在背景、尺寸、模糊参数变化时生成，逐控件绘制不重复卷积。
  *
  * 玻璃的「材质感」靠三件事，缺一不可：
  *   ① 边缘的**方向性镜面光**（左上亮 → 右下暗）—— 液体的「液」来自这条不对称的边；
@@ -56,10 +53,10 @@ import androidx.compose.ui.unit.dp
 /**
  * 一张「整屏模糊背景」。
  *
- * 位图比屏幕小很多（1/6），玻璃块靠 [screenSize] 把自己的坐标映射进去。
+ * 位图按主题画质降采样，玻璃块靠 [screenSize] 把自己的坐标映射进去。
  */
 class PclSoftBackdrop(
-    /** 模糊过的背景（屏幕的 1/6 左右）。 */
+    /** 经过高斯卷积的背景。 */
     val image: ImageBitmap,
     /** 生成时对应的窗口像素尺寸。 */
     val screenSize: IntSize,
@@ -112,7 +109,8 @@ fun Modifier.pclSoftGlass(
 
             val src = soft.image.asAndroidBitmap()
             // 位图一个像素 = 屏幕上多少个像素
-            val k = soft.screenSize.width.toFloat() / src.width.toFloat()
+            val scaleX = soft.screenSize.width.toFloat() / src.width.toFloat()
+            val scaleY = soft.screenSize.height.toFloat() / src.height.toFloat()
 
             val shader = BitmapShader(src, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
             val glassPaint = Paint().apply {
@@ -182,11 +180,11 @@ fun Modifier.pclSoftGlass(
                 if (!px.isFinite()) px = 0f
                 if (!py.isFinite()) py = 0f
 
-                // 位图坐标 → 画布坐标：先按 k 放大到屏幕尺度，
-                // 再绕「这块玻璃自己的中心」轻微放大（折射），最后平移回局部原点。
-                matrix.setScale(k, k)
-                matrix.postScale(bend, bend, size.width / 2f, size.height / 2f)
+                // 先映射至窗口并移到控件原点，再绕控件自身中心折射。
+                // 两轴单独还原整数采样尺寸，避免横竖屏高度累积偏差。
+                matrix.setScale(scaleX, scaleY)
                 matrix.postTranslate(-px, -py)
+                matrix.postScale(bend, bend, size.width / 2f, size.height / 2f)
                 shader.setLocalMatrix(matrix)
 
                 val canvas = drawContext.canvas.nativeCanvas

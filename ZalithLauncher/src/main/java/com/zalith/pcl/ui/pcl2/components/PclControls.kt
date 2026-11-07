@@ -408,34 +408,31 @@ fun PclButton(
         return
     }
 
-    // 低版本走「软玻璃」：液态按钮组件需要真 `Backdrop`（系统模糊），这里给不了，
-    // 但软玻璃不需要它 —— 有条件就该让按钮也透出背景，而不是留一个白色方框。
-    val softGlassShape = RoundedCornerShape(
+    // 装了主题就走「主题表面」，让主题决定按钮长什么样（圆角、玻璃、素材、描边都在 pclSurface 里定）。
+    // 之前这里只有「软玻璃」才走 pclSurface，其它主题一律退回 PCL 的白底 + 描边 ——
+    // 于是换任何主题，按钮都还是那个原生按钮，等于主题对按钮完全失效。
+    // 没装主题（uiTheme == null）才保留 PCL 原样。
+    val themedButton = uiTheme != null &&
+            uiTheme.glassEnabledFor("button")
+    val buttonShape = RoundedCornerShape(
         uiTheme.roleCornerOr("button", uiTheme.buttonCornerOr(PclDimens.buttonCorner)),
     )
-    val softButton = uiTheme != null &&
-            uiTheme.renderer == PclUiRenderer.Glass &&
-            uiTheme.glassEnabledFor("button") &&
-            PclUiRuntime.soft != null
 
     Row(
         // `MyButton` 的按下缩放套在最外层（对应 PCL 的 PanFore RenderTransform）
         modifier = modifier
             .pclPressScale(pressed)
             .heightIn(min = height)
-            .clip(softGlassShape)
+            .clip(buttonShape)
             .then(
-                // 低版本（没有 RenderEffect）：液态按钮组件拿不到 `Backdrop`，
-                // 但软玻璃不需要它 —— 直接按角色画一块玻璃，按钮才有圆角与透视。
-                // 不这么做的话这里会退回 PCL 的「半透明白 + 深色描边」，就是用户看到的那个方框。
-                if (softButton) {
+                if (themedButton) {
                     Modifier.pclSurface(
                         theme = uiTheme,
-                        backdrop = null,
-                        shape = softGlassShape,
+                        backdrop = uiBackdrop,
+                        shape = buttonShape,
                         surface = PclSurface.Control,
                         fallbackColor = backgroundColor,
-                        colorOverride = Color.White,
+                        colorOverride = backgroundColor,
                         role = "button",
                     )
                 } else {
@@ -443,12 +440,10 @@ fun PclButton(
                 }
             )
             .then(
-                if (softButton || (uiTheme != null && uiTheme.renderer == PclUiRenderer.Glass &&
-                        uiTheme.glassEnabledFor("button"))
-                ) {
+                if (themedButton) {
                     Modifier
                 } else {
-                    Modifier.border(pclHairline(), borderColor, softGlassShape)
+                    Modifier.border(pclHairline(), borderColor, buttonShape)
                 }
             )
             .clickable(enabled = enabled, interactionSource = interaction, indication = null, onClick = onClick)
