@@ -146,6 +146,7 @@ import com.zalith.pcl.ui.pcl2.theme.PclDimens
 import com.zalith.pcl.ui.pcl2.theme.PclSurface
 import com.zalith.pcl.ui.pcl2.theme.PclSoftBackdrop
 import com.zalith.pcl.ui.pcl2.theme.PclUiRenderer
+import com.zalith.pcl.ui.pcl2.theme.PclAssetLoader
 import com.zalith.pcl.ui.pcl2.theme.PclSlotOverride
 import com.zalith.pcl.ui.pcl2.theme.PclUiTheme
 import com.zalith.pcl.ui.pcl2.data.parsePclPluginPages
@@ -379,6 +380,9 @@ fun PclMainScreen(
             runCatching { ZlPluginManager.activeTheme(context) }.getOrNull()
         }
         PclUiRuntime.apply(themeJson?.json, themeJson?.id.orEmpty())
+        // `ui.json` 里的素材路径都相对于插件目录；换插件/升级后图片可能变了，缓存跟着清。
+        PclUiRuntime.assetDir = themeJson?.dir
+        PclAssetLoader.clear()
         // 插件声明的页面：布局槽位（ui.json 的 layout）要按 id 找它们，
         // 而渲染版块的地方拿不到插件目录，所以在这里读一次、存进全局。
         PclUiRuntime.pages = withContext(Dispatchers.IO) {
@@ -619,6 +623,44 @@ private fun PclMainContent(
                                 }
                             },
                     )
+                }
+                // ---- 插件给的背景素材
+                //
+                // 位置很关键：在「玻璃态默认壁纸」之上、用户自己的壁纸之下。
+                // 这样没设壁纸的用户能看到皮肤的底图，而用户自己挑的壁纸仍然最优先 ——
+                // 皮肤不该抢用户已经选好的东西。
+                if (uiTheme != null) {
+                    val bgAsset = uiTheme.assets["background"]
+                    val bgImage = remember(bgAsset, PclUiRuntime.assetDir) {
+                        PclAssetLoader.load(bgAsset)
+                    }
+                    if (bgImage != null) {
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .drawWithCache {
+                                    onDrawBehind {
+                                        val scale = maxOf(
+                                            size.width / bgImage.width,
+                                            size.height / bgImage.height,
+                                        )
+                                        val dw = bgImage.width * scale
+                                        val dh = bgImage.height * scale
+                                        drawImage(
+                                            image = bgImage,
+                                            dstOffset = androidx.compose.ui.unit.IntOffset(
+                                                ((size.width - dw) / 2f).toInt(),
+                                                ((size.height - dh) / 2f).toInt(),
+                                            ),
+                                            dstSize = androidx.compose.ui.unit.IntSize(
+                                                dw.toInt().coerceAtLeast(1),
+                                                dh.toInt().coerceAtLeast(1),
+                                            ),
+                                        )
+                                    }
+                                },
+                        )
+                    }
                 }
                 // ---- 背景图片（PCL 的 CardBackground）
                 // 铺在窗体最底下：底色/渐变在它下面、界面内容在它上面，

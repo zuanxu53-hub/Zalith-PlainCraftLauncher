@@ -47,6 +47,14 @@ private const val UI_SPEC_ENTRY = ASSET_ROOT + "ui.json"
 /** 插件自定义页面的条目名；安装时另存为插件目录下的 `pages.json`。 */
 private const val PAGES_SPEC_ENTRY = ASSET_ROOT + "pages.json"
 
+/**
+ * 皮肤素材目录：`assets/zplugin/res/` 下的东西会原样复制到 `<插件目录>/res/`。
+ *
+ * 为什么单独放一个目录而不是塞进 `files/`：`files/` 是**要覆盖到游戏目录**的文件树，
+ * 素材是给界面用的，两者语义完全不同，混在一起会让「启用插件」误写一堆图片进 .minecraft。
+ */
+private const val RES_PREFIX = ASSET_ROOT + "res/"
+
 /** 插件投递目录名（`<插件根>/incoming`）：APK 丢进来，装完自动清掉。 */
 private const val INCOMING_DIR = "incoming"
 
@@ -169,6 +177,8 @@ data class ZlPluginTheme(
     val id: String,
     val name: String,
     val json: String,
+    /** 插件目录：`ui.json` 里写的素材路径都相对于它下面的 `res/`。 */
+    val dir: File,
 )
 
 /** 一次自动识别的结果。 */
@@ -222,6 +232,7 @@ object ZlPluginManager {
         return ZlPluginTheme(
             id = plugin.ui.ifBlank { plugin.id },
             name = plugin.name,
+            dir = plugin.dir,
             // 只写了 plugin.json 里的 ui、没带 ui.json 时，给一份空参数 —— 界面用默认值
             json = json?.ifBlank { null } ?: "{}",
         )
@@ -548,6 +559,22 @@ object ZlPluginManager {
                     }
                 }.onFailure { Logger.warning(TAG, "保存 pages.json 失败", it) }
             }
+            // 皮肤素材：`assets/zplugin/res/**` 原样搬到 `<插件目录>/res/`。
+            // 只认这一层，不做路径清洗之外的任何处理 —— 图片是死的，插件拿不到执行能力。
+            runCatching {
+                zip.entries().toList().forEach { entry ->
+                    val name = entry.normalizedEntryName()
+                    if (entry.isDirectory || !name.startsWith(RES_PREFIX)) return@forEach
+                    val rel = name.removePrefix(RES_PREFIX)
+                    if (rel.isBlank()) return@forEach
+                    val out = File(dir, "res/$rel")
+                    out.parentFile?.mkdirs()
+                    zip.getInputStream(entry).use { input ->
+                        out.outputStream().use { output -> input.copyTo(output) }
+                    }
+                }
+            }.onFailure { Logger.warning(TAG, "复制皮肤素材失败", it) }
+
             writeMeta(dir, meta)
             installedMeta = meta
             installedDir = dir

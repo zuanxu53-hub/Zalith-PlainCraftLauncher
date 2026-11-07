@@ -184,6 +184,14 @@ data class PclUiTheme(
     /** 角色级覆盖（见 [PclRoleStyle]）。 */
     val roles: Map<String, PclRoleStyle> = emptyMap(),
     /**
+     * 角色素材（`ui.json` 的 `assets` 段）：用图片顶掉某个角色的表面。
+     *
+     * key 是角色名（`card` / `button` / `input` / `pill` …），外加一个特殊 key
+     * `background`（窗体背景图，由 `PclShell` 的背景层消费）。
+     * 有素材的角色在 [pclSurface] 里直接贴图，不再走玻璃或纯色。
+     */
+    val assets: Map<String, PclAssetSpec> = emptyMap(),
+    /**
      * 布局槽位覆盖（`ui.json` 的 `layout` 段）。
      *
      * key 是版块名，value 指定该版块的左栏 / 内容区用哪个插件页面。
@@ -269,6 +277,8 @@ private data class ThemeJson(
     @SerializedName("glass") val glass: GlassJson? = null,
     @SerializedName("roles") val roles: Map<String, RoleJson>? = null,
     @SerializedName("layout") val layout: Map<String, LayoutSlotJson>? = null,
+    /** 素材：值可以是字符串（只给路径）或对象（路径 + 九宫格切片）。 */
+    @SerializedName("assets") val assets: Map<String, com.google.gson.JsonElement>? = null,
     @SerializedName("border") val border: BorderJson? = null,
     @SerializedName("palette") val palette: String? = null,
     @SerializedName("slider") val slider: SliderJson? = null,
@@ -310,6 +320,25 @@ fun parsePclUiTheme(json: String, fallbackId: String = ""): PclUiTheme {
                 corner = value.corner?.takeIf { it >= 0f },
             )
             key.trim().lowercase().ifBlank { null }?.let { it to style }
+        }?.toMap().orEmpty(),
+        assets = raw.assets?.mapNotNull { (key, value) ->
+            val slot = key.trim().lowercase().ifBlank { null } ?: return@mapNotNull null
+            val spec = runCatching {
+                when {
+                    value.isJsonPrimitive -> value.asString.trim().ifBlank { null }
+                        ?.let { PclAssetSpec(src = it) }
+                    value.isJsonObject -> {
+                        val obj = value.asJsonObject
+                        val src = obj.get("src")?.takeIf { it.isJsonPrimitive }
+                            ?.asString?.trim()?.ifBlank { null } ?: return@runCatching null
+                        val slice = obj.get("slice")?.takeIf { it.isJsonPrimitive }
+                            ?.asInt ?: 0
+                        PclAssetSpec(src = src, slice = slice.coerceIn(0, 512))
+                    }
+                    else -> null
+                }
+            }.getOrNull()
+            spec?.let { slot to it }
         }?.toMap().orEmpty(),
         layout = raw.layout?.mapNotNull { (key, value) ->
             val slot = key.trim().lowercase().ifBlank { null } ?: return@mapNotNull null
@@ -444,6 +473,9 @@ object PclUiRuntime {
      */
     var pages by mutableStateOf<List<PclPluginPageSpec>>(emptyList())
 
+    /** 当前皮肤插件的目录（`ui.json` 里的素材路径相对于它）。 */
+    var assetDir by mutableStateOf<java.io.File?>(null)
+
     /** 按 id 找插件页面；找不到返回 null（宁可退回内置界面，也不显示空白）。 */
     fun pageById(id: String?): PclPluginPageSpec? =
         id?.let { key -> pages.firstOrNull { it.id == key } }
@@ -498,6 +530,14 @@ fun Modifier.pclSurface(
     role: String = "",
 ): Modifier {
     if (theme == null) return this.background(fallbackColor, shape)
+
+    // 插件给这个角色准备了图片：直接贴图，玻璃与纯色都不再参与。
+    // 放在最前面是因为素材是「最终形态」——再叠玻璃只会在图上糊一层，把素材弄脏。
+    theme.assets[role]?.let { asset ->
+        if (PclAssetLoader.resolve(asset) != null) {
+            return this.pclImageSurface(asset, shape)
+        }
+    }
 
     val roleStyle = theme.roles[role]
     val color = roleStyle?.color ?: colorOverride ?: theme.cardColor
