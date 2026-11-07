@@ -160,8 +160,11 @@ fun Modifier.pclSoftGlass(
                     Shader.TileMode.CLAMP,
                 )
             }
-            // ④ 内侧底部暗边：玻璃的厚度，让边缘看起来是立体的而不是一张贴纸
+            // ④ 内侧底部暗边：玻璃的厚度，让边缘看起来是立体的而不是一张贴纸。
+            //    只给卡片/控件画；面板（顶栏、侧栏）要的是「一整块连续玻璃」，
+            //    底部暗边会在它贴着内容区的地方留下一条深色横线（正是用户截图里那根线）。
             val lowerEdge = minOf(size.height * 0.30f, 14.dp.toPx())
+            val drawThicknessEdges = surface != PclSurface.Panel
             val bottomPaint = Paint().apply {
                 isAntiAlias = true
                 this.shader = LinearGradient(
@@ -203,8 +206,10 @@ fun Modifier.pclSoftGlass(
                     tintPaint.alpha = (fillAlpha.coerceIn(0f, 1f) * 255).toInt()
                     canvas.drawRect(0f, 0f, size.width, size.height, tintPaint)
                 }
-                canvas.drawRect(0f, 0f, size.width, size.height, topPaint)
-                canvas.drawRect(0f, 0f, size.width, size.height, bottomPaint)
+                if (drawThicknessEdges) {
+                    canvas.drawRect(0f, 0f, size.width, size.height, topPaint)
+                    canvas.drawRect(0f, 0f, size.width, size.height, bottomPaint)
+                }
                 canvas.restore()
 
                 // 边缘光画在裁剪之外：stroke 有一半落在形状外面，裁掉就只剩半条线
